@@ -1,0 +1,3400 @@
+[AGENT_RUNNER] Entered main()
+[AGENT_RUNNER] Reading input.json
+[AGENT_RUNNER] Read input.json
+[AGENT_RUNNER] Loading /sandbox/agent.py
+[AGENT_RUNNER] Loaded /sandbox/agent.py
+[AGENT_RUNNER] agent_main() function found in /sandbox/agent.py
+[AGENT_RUNNER] Entering agent's agent_main()
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 15s/50s | Total: 15s
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 1 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/1 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/1 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 1s/50s | Total: 1s
+[FIX_TASK] 1/250 | 0.0s/1300.0s | $0.0032/$2.5000
+   ├── 🛅 Input token size: 12342 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=2)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 13s/50s | Total: 13s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 10 function tools
+1. success to run `bash(find . -name 'related.py' -type f | head -10)`
+./django/db/models/fields/related.py
+2. success to run `bash(find . -path '*/db/models/fields/*' -name '*.py' | head -10)`
+./django/db/models/fields/reverse_related.py
+./django/db/models/fields/related_descriptors.py
+./django/db/models/fields/files.py
+./django/db/models/fields/related_lookups.py
+./django/db/models/fields/__init__.py
+./django/db/models/fields/proxy.py
+./django/db/models/fields/mixins.py
+./django/db/models/fields/related.py
+./django/db/models/fields/json.py
+3. success to run `bash(grep -rn 'ForeignKey' django/db/models/fields/ | head -10)`
+django/db/models/fields/reverse_related.py:186:    Used by the ForeignKey field to store information about the relation.
+django/db/models/fields/related_descriptors.py:18:        parent = ForeignKey(Parent, related_name='children')
+django/db/models/fields/related_descriptors.py:75:class ForeignKeyDeferredAttribute(DeferredAttribute):
+django/db/models/fields/related_descriptors.py:90:            parent = ForeignKey(Parent, related_name='children')
+django/db/models/fields/related_descriptors.py:502:            parent = ForeignKey(Parent, related_name='children')
+django/db/models/fields/related_descriptors.py:692:        # remove() and clear() are only provided if the ForeignKey can have a value of null.
+django/db/models/fields/related_lookups.py:52:            # ForeignKey to IntegerField given value 'abc'. The ForeignKey itself
+django/db/models/fields/related_lookups.py:108:            # ForeignKey to IntegerField given value 'abc'. The ForeignKey itself
+django/db/models/fields/__init__.py:63:#                "name", except in the case of ForeignKeys, where "_id" is
+django/db/models/fields/__init__.py:699:        use. For example, this method is called by ForeignKey and OneToOneField
+4. success to run `bash(head -300 django/db/models/fields/related.py)`
+import functools
+import inspect
+from functools import partial
+from django import forms
+from django.apps import apps
+from django.conf import SettingsReference, settings
+from django.core import checks, exceptions
+from django.db import connection, router
+from django.db.backends import utils
+from django.db.models import Q
+from django.db.models.constants import LOOKUP_SEP
+from django.db.models.deletion import CASCADE, SET_DEFAULT, SET_NULL
+from django.db.models.query_utils import PathInfo
+from django.db.models.utils import make_model_tuple
+from django.utils.functional import cached_property
+from django.utils.translation import gettext_lazy as _
+from . import Field
+from .mixins import FieldCacheMixin
+from .related_descriptors import (
+    ForeignKeyDeferredAttribute, ForwardManyToOneDescriptor,
+    ForwardOneToOneDescriptor, ManyToManyDescriptor,
+    ReverseManyToOneDescriptor, ReverseOneToOneDescriptor,
+)
+from .related_lookups import (
+    RelatedExact, RelatedGreaterThan, RelatedGreaterThanOrEqual, RelatedIn,
+    RelatedIsNull, RelatedLessThan, RelatedLessThanOrEqual,
+)
+from .reverse_related import (
+    ForeignObjectRel, ManyToManyRel, ManyToOneRel, OneToOneRel,
+)
+RECURSIVE_RELATIONSHIP_CONSTANT = 'self'
+def resolve_relation(scope_model, relation):
+    """
+    Transform relation into a model or fully-qualified model string of the form
+    "app_label.ModelName", relative to scope_model.
+    The relation argument can be:
+      * RECURSIVE_RELATIONSHIP_CONSTANT, i.e. the string "self", in which case
+        the model argument will be returned.
+      * A bare model name without an app_label, in which case scope_model's
+        app_label will be prepended.
+      * An "app_label.ModelName" string.
+      * A model class, which will be returned unchanged.
+    """
+    # Check for recursive relations
+    if relation == RECURSIVE_RELATIONSHIP_CONSTANT:
+        relation = scope_model
+    # Look for an "app.Model" relation
+    if isinstance(relation, str):
+        if "." not in relation:
+            relation = "%s.%s" % (scope_model._meta.app_label, relation)
+    return relation
+def lazy_related_operation(function, model, *related_models, **kwargs):
+    """
+    Schedule `function` to be called once `model` and all `related_models`
+    have been imported and registered with the app registry. `function` will
+    be called with the newly-loaded model classes as its positional arguments,
+    plus any optional keyword arguments.
+    The `model` argument must be a model class. Each subsequent positional
+    argument is another model, or a reference to another model - see
+    `resolve_relation()` for the various forms these may take. Any relative
+    references will be resolved relative to `model`.
+    This is a convenience wrapper for `Apps.lazy_model_operation` - the app
+    registry model used is the one found in `model._meta.apps`.
+    """
+    models = [model] + [resolve_relation(model, rel) for rel in related_models]
+    model_keys = (make_model_tuple(m) for m in models)
+    apps = model._meta.apps
+    return apps.lazy_model_operation(partial(function, **kwargs), *model_keys)
+class RelatedField(FieldCacheMixin, Field):
+    """Base class that all relational fields inherit from."""
+    # Field flags
+    one_to_many = False
+    one_to_one = False
+    many_to_many = False
+    many_to_one = False
+    @cached_property
+    def related_model(self):
+        # Can't cache this property until all the models are loaded.
+        apps.check_models_ready()
+        return self.remote_field.model
+    def check(self, **kwargs):
+        return [
+            *super().check(**kwargs),
+            *self._check_related_name_is_valid(),
+            *self._check_related_query_name_is_valid(),
+            *self._check_relation_model_exists(),
+            *self._check_referencing_to_swapped_model(),
+            *self._check_clashes(),
+        ]
+    def _check_related_name_is_valid(self):
+        import keyword
+        related_name = self.remote_field.related_name
+        if related_name is None:
+            return []
+        is_valid_id = not keyword.iskeyword(related_name) and related_name.isidentifier()
+        if not (is_valid_id or related_name.endswith('+')):
+            return [
+                checks.Error(
+                    "The name '%s' is invalid related_name for field %s.%s" %
+                    (self.remote_field.related_name, self.model._meta.object_name,
+                     self.name),
+                    hint="Related name must be a valid Python identifier or end with a '+'",
+                    obj=self,
+                    id='fields.E306',
+                )
+            ]
+        return []
+    def _check_related_query_name_is_valid(self):
+        if self.remote_field.is_hidden():
+            return []
+        rel_query_name = self.related_query_name()
+        errors = []
+        if rel_query_name.endswith('_'):
+            errors.append(
+                checks.Error(
+                    "Reverse query name '%s' must not end with an underscore."
+                    % rel_query_name,
+                    hint=("Add or change a related_name or related_query_name "
+                          "argument for this field."),
+                    obj=self,
+                    id='fields.E308',
+                )
+            )
+        if LOOKUP_SEP in rel_query_name:
+            errors.append(
+                checks.Error(
+                    "Reverse query name '%s' must not contain '%s'."
+                    % (rel_query_name, LOOKUP_SEP),
+                    hint=("Add or change a related_name or related_query_name "
+                          "argument for this field."),
+                    obj=self,
+                    id='fields.E309',
+                )
+            )
+        return errors
+    def _check_relation_model_exists(self):
+        rel_is_missing = self.remote_field.model not in self.opts.apps.get_models()
+        rel_is_string = isinstance(self.remote_field.model, str)
+        model_name = self.remote_field.model if rel_is_string else self.remote_field.model._meta.object_name
+        if rel_is_missing and (rel_is_string or not self.remote_field.model._meta.swapped):
+            return [
+                checks.Error(
+                    "Field defines a relation with model '%s', which is either "
+                    "not installed, or is abstract." % model_name,
+                    obj=self,
+                    id='fields.E300',
+                )
+            ]
+        return []
+    def _check_referencing_to_swapped_model(self):
+        if (self.remote_field.model not in self.opts.apps.get_models() and
+                not isinstance(self.remote_field.model, str) and
+                self.remote_field.model._meta.swapped):
+            model = "%s.%s" % (
+                self.remote_field.model._meta.app_label,
+                self.remote_field.model._meta.object_name
+            )
+            return [
+                checks.Error(
+                    "Field defines a relation with the model '%s', which has "
+                    "been swapped out." % model,
+                    hint="Update the relation to point at 'settings.%s'." % self.remote_field.model._meta.swappable,
+                    obj=self,
+                    id='fields.E301',
+                )
+            ]
+        return []
+    def _check_clashes(self):
+        """Check accessor and reverse query name clashes."""
+        from django.db.models.base import ModelBase
+        errors = []
+        opts = self.model._meta
+        # `f.remote_field.model` may be a string instead of a model. Skip if model name is
+        # not resolved.
+        if not isinstance(self.remote_field.model, ModelBase):
+            return []
+        # Consider that we are checking field `Model.foreign` and the models
+        # are:
+        #
+        #     class Target(models.Model):
+        #         model = models.IntegerField()
+        #         model_set = models.IntegerField()
+        #
+        #     class Model(models.Model):
+        #         foreign = models.ForeignKey(Target)
+        #         m2m = models.ManyToManyField(Target)
+        # rel_opts.object_name == "Target"
+        rel_opts = self.remote_field.model._meta
+        # If the field doesn't install a backward relation on the target model
+        # (so `is_hidden` returns True), then there are no clashes to check
+        # and we can skip these fields.
+        rel_is_hidden = self.remote_field.is_hidden()
+        rel_name = self.remote_field.get_accessor_name()  # i. e. "model_set"
+        rel_query_name = self.related_query_name()  # i. e. "model"
+        field_name = "%s.%s" % (opts.object_name, self.name)  # i. e. "Model.field"
+        # Check clashes between accessor or reverse query name of `field`
+        # and any other field name -- i.e. accessor for Model.foreign is
+        # model_set and it clashes with Target.model_set.
+        potential_clashes = rel_opts.fields + rel_opts.many_to_many
+        for clash_field in potential_clashes:
+            clash_name = "%s.%s" % (rel_opts.object_name, clash_field.name)  # i.e. "Target.model_set"
+            if not rel_is_hidden and clash_field.name == rel_name:
+                errors.append(
+                    checks.Error(
+                        "Reverse accessor for '%s' clashes with field name '%s'." % (field_name, clash_name),
+                        hint=("Rename field '%s', or add/change a related_name "
+                              "argument to the definition for field '%s'.") % (clash_name, field_name),
+                        obj=self,
+                        id='fields.E302',
+                    )
+                )
+            if clash_field.name == rel_query_name:
+                errors.append(
+                    checks.Error(
+                        "Reverse query name for '%s' clashes with field name '%s'." % (field_name, clash_name),
+                        hint=("Rename field '%s', or add/change a related_name "
+                              "argument to the definition for field '%s'.") % (clash_name, field_name),
+                        obj=self,
+                        id='fields.E303',
+                    )
+                )
+        # Check clashes between accessors/reverse query names of `field` and
+        # any other field accessor -- i. e. Model.foreign accessor clashes with
+        # Model.m2m accessor.
+        potential_clashes = (r for r in rel_opts.related_objects if r.field is not self)
+        for clash_field in potential_clashes:
+            clash_name = "%s.%s" % (  # i. e. "Model.m2m"
+                clash_field.related_model._meta.object_name,
+                clash_field.field.name)
+            if not rel_is_hidden and clash_field.get_accessor_name() == rel_name:
+                errors.append(
+                    checks.Error(
+                        "Reverse accessor for '%s' clashes with reverse accessor for '%s'." % (field_name, clash_name),
+                        hint=("Add or change a related_name argument "
+                              "to the definition for '%s' or '%s'.") % (field_name, clash_name),
+                        obj=self,
+                        id='fields.E304',
+                    )
+                )
+            if clash_field.get_accessor_name() == rel_query_name:
+                errors.append(
+                    checks.Error(
+                        "Reverse query name for '%s' clashes with reverse query name for '%s'."
+                        % (field_name, clash_name),
+                        hint=("Add or change a related_name argument "
+                              "to the definition for '%s' or '%s'.") % (field_name, clash_name),
+                        obj=self,
+                        id='fields.E305',
+                    )
+                )
+        return errors
+    def db_type(self, connection):
+        # By default related field will not have a column as it relates to
+        # columns from another table.
+        return None
+    def contribute_to_class(self, cls, name, private_only=False, **kwargs):
+        super().contribute_to_class(cls, name, private_only=private_only, **kwargs)
+        self.opts = cls._meta
+        if not cls._meta.abstract:
+            if self.remote_field.related_name:
+                related_name = self.remote_field.related_name
+            else:
+                related_name = self.opts.default_related_name
+            if related_name:
+5. success to run `bash(grep -n 'def validate' django/db/models/fields/related.py)`
+909:    def validate(self, value, model_instance):
+6. success to run `bash(grep -rn '_default_manager\|_base_manager' django/db/models/ | head -10)`
+django/db/models/query.py:347:        query = self if self.query.can_filter() else self.model._base_manager.filter(pk__in=self.values('pk'))
+django/db/models/query.py:351:            other = other.model._base_manager.filter(pk__in=other.values('pk'))
+django/db/models/deletion.py:354:        return related_model._base_manager.using(self.using).filter(predicate)
+django/db/models/base.py:377:    def _base_manager(cls):
+django/db/models/base.py:381:    def _default_manager(cls):
+django/db/models/base.py:620:        db_instance_qs = self.__class__._base_manager.db_manager(using, hints=hints).filter(pk=self.pk)
+django/db/models/base.py:865:            base_qs = cls._base_manager.using(using)
+django/db/models/base.py:881:                self._order = cls._base_manager.using(using).filter(**filter_args).aggregate(
+django/db/models/base.py:892:            results = self._do_insert(cls._base_manager, using, fields, returning_fields, raw)
+django/db/models/base.py:962:        qs = self.__class__._default_manager.using(self._state.db).filter(**kwargs).filter(q).order_by(
+7. success to run `bash(find . -name '*test*related*' -o -name '*test*foreign*' | head -10)`
+./tests/prefetch_related/test_prefetch_related_objects.py
+./tests/model_options/test_default_related_name.py
+./tests/model_fields/test_foreignkey.py
+8. success to run `bash(find . -path '*test*' -name '*.py' -exec grep -l 'ForeignKey.*validate\|validate.*ForeignKey' {} \;)`
+find: missing argument to `-exec'
+9. success to run `bash(grep -rn '_base_manager' django/tests/ | head -10)`
+grep: django/tests/: No such file or directory
+10. success to run `bash(grep -rn 'class.*Manager' django/db/models/ | head -10)`
+django/db/models/fields/related_descriptors.py:559:    class RelatedManager(superclass):
+django/db/models/fields/related_descriptors.py:815:    class ManyRelatedManager(superclass):
+django/db/models/manager.py:9:class BaseManager:
+django/db/models/manager.py:168:class Manager(BaseManager.from_queryset(QuerySet)):
+django/db/models/manager.py:172:class ManagerDescriptor:
+django/db/models/manager.py:198:class EmptyManager(Manager):
+[FIX_TASK] 2/250 | 13.9s/1300.0s | $0.0136/$2.5000
+   ├── 🛅 Input token size: 19330 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=4)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ❌ Request timeout after 50s for model Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Attempt: 1/5 | Timeout: 50s/50s | Total: 50s
+   ├── 💤 Sleeping 1s before retrying with same model...
+   ├── 🔂 Starting Request | Attempt: 2/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 2/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 7s/50s | Total: 58s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 5 function tools
+1. success to run `bash(sed -n '900,930p' django/db/models/fields/related.py)`
+from_opts=from_opts,
+            to_opts=opts,
+            target_fields=(opts.pk,),
+            join_field=self.remote_field,
+            m2m=not self.unique,
+            direct=False,
+            filtered_relation=filtered_relation,
+        )]
+    def validate(self, value, model_instance):
+        if self.remote_field.parent_link:
+            return
+        super().validate(value, model_instance)
+        if value is None:
+            return
+        using = router.db_for_read(self.remote_field.model, instance=model_instance)
+        qs = self.remote_field.model._default_manager.using(using).filter(
+            **{self.remote_field.field_name: value}
+        )
+        qs = qs.complex_filter(self.get_limit_choices_to())
+        if not qs.exists():
+            raise exceptions.ValidationError(
+                self.error_messages['invalid'],
+                code='invalid',
+                params={
+                    'model': self.remote_field.model._meta.verbose_name, 'pk': value,
+                    'field': self.remote_field.field_name, 'value': value,
+                },  # 'pk' is included for backwards compatibility
+            )
+2. success to run `bash(grep -rn '_default_manager' django/db/models/fields/related.py)`
+917:        qs = self.remote_field.model._default_manager.using(using).filter(
+987:            'queryset': self.remote_field.model._default_manager.using(using),
+1671:            'queryset': self.remote_field.model._default_manager.using(using),
+3. success to run `bash(grep -rn '_base_manager' django/db/models/fields/related.py)`
+No output
+4. success to run `bash(find . -path '*test*' -name '*.py' -exec grep -l 'ForeignKey.*validate\|validate.*ForeignKey' {} \; | head -5)`
+./tests/many_to_one/tests.py
+./tests/multiple_database/tests.py
+5. success to run `bash(grep -A 20 -B 5 '_default_manager' django/db/models/fields/related.py)`
+super().validate(value, model_instance)
+        if value is None:
+            return
+        using = router.db_for_read(self.remote_field.model, instance=model_instance)
+        qs = self.remote_field.model._default_manager.using(using).filter(
+            **{self.remote_field.field_name: value}
+        )
+        qs = qs.complex_filter(self.get_limit_choices_to())
+        if not qs.exists():
+            raise exceptions.ValidationError(
+                self.error_messages['invalid'],
+                code='invalid',
+                params={
+                    'model': self.remote_field.model._meta.verbose_name, 'pk': value,
+                    'field': self.remote_field.field_name, 'value': value,
+                },  # 'pk' is included for backwards compatibility
+            )
+    def resolve_related_fields(self):
+        related_fields = super().resolve_related_fields()
+        for from_field, to_field in related_fields:
+            if to_field and to_field.model != self.remote_field.model._meta.concrete_model:
+                raise exceptions.FieldError(
+                    "'%s.%s' refers to field '%s' which is not local to model "
+                    "'%s'." % (
+--
+            raise ValueError("Cannot create form field for %r yet, because "
+                             "its related model %r has not been loaded yet" %
+                             (self.name, self.remote_field.model))
+        return super().formfield(**{
+            'form_class': forms.ModelChoiceField,
+            'queryset': self.remote_field.model._default_manager.using(using),
+            'to_field_name': self.remote_field.field_name,
+            **kwargs,
+            'blank': self.blank,
+        })
+    def db_check(self, connection):
+        return []
+    def db_type(self, connection):
+        return self.target_field.rel_db_type(connection=connection)
+    def db_parameters(self, connection):
+        return {"type": self.db_type(connection), "check": self.db_check(connection)}
+    def convert_empty_strings(self, value, expression, connection):
+        if (not value) and isinstance(value, str):
+            return None
+        return value
+    def get_db_converters(self, connection):
+--
+        getattr(instance, self.attname).set(data)
+    def formfield(self, *, using=None, **kwargs):
+        defaults = {
+            'form_class': forms.ModelMultipleChoiceField,
+            'queryset': self.remote_field.model._default_manager.using(using),
+            **kwargs,
+        }
+        # If initial is passed in, it's a list of related objects, but the
+        # MultipleChoiceField takes a list of IDs.
+        if defaults.get('initial') is not None:
+            initial = defaults['initial']
+            if callable(initial):
+                initial = initial()
+            defaults['initial'] = [i.pk for i in initial]
+        return super().formfield(**defaults)
+    def db_check(self, connection):
+        return None
+    def db_type(self, connection):
+        # A ManyToManyField is not represented by a single column,
+        # so return None.
+        return None
+    def db_parameters(self, connection):
+[FIX_TASK] 3/250 | 74.5s/1300.0s | $0.0291/$2.5000
+   ├── 🛅 Input token size: 21489 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=6)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 9s/50s | Total: 9s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 5 function tools
+1. success to run `bash(head -300 tests/many_to_one/tests.py)`
+import datetime
+from copy import deepcopy
+from django.core.exceptions import FieldError, MultipleObjectsReturned
+from django.db import IntegrityError, models, transaction
+from django.test import TestCase
+from django.utils.translation import gettext_lazy
+from .models import (
+    Article, Category, Child, ChildNullableParent, City, Country, District,
+    First, Parent, Record, Relation, Reporter, School, Student, Third,
+    ToFieldChild,
+)
+class ManyToOneTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        # Create a few Reporters.
+        cls.r = Reporter(first_name='John', last_name='Smith', email='john@example.com')
+        cls.r.save()
+        cls.r2 = Reporter(first_name='Paul', last_name='Jones', email='paul@example.com')
+        cls.r2.save()
+        # Create an Article.
+        cls.a = Article(headline='This is a test', pub_date=datetime.date(2005, 7, 27), reporter=cls.r)
+        cls.a.save()
+    def test_get(self):
+        # Article objects have access to their related Reporter objects.
+        r = self.a.reporter
+        self.assertEqual(r.id, self.r.id)
+        self.assertEqual((r.first_name, self.r.last_name), ('John', 'Smith'))
+    def test_create(self):
+        # You can also instantiate an Article by passing the Reporter's ID
+        # instead of a Reporter object.
+        a3 = Article(headline="Third article", pub_date=datetime.date(2005, 7, 27), reporter_id=self.r.id)
+        a3.save()
+        self.assertEqual(a3.reporter.id, self.r.id)
+        # Similarly, the reporter ID can be a string.
+        a4 = Article(headline="Fourth article", pub_date=datetime.date(2005, 7, 27), reporter_id=str(self.r.id))
+        a4.save()
+        self.assertEqual(repr(a4.reporter), "<Reporter: John Smith>")
+    def test_add(self):
+        # Create an Article via the Reporter object.
+        new_article = self.r.article_set.create(headline="John's second story", pub_date=datetime.date(2005, 7, 29))
+        self.assertEqual(repr(new_article), "<Article: John's second story>")
+        self.assertEqual(new_article.reporter.id, self.r.id)
+        # Create a new article, and add it to the article set.
+        new_article2 = Article(headline="Paul's story", pub_date=datetime.date(2006, 1, 17))
+        msg = "<Article: Paul's story> instance isn't saved. Use bulk=False or save the object first."
+        with self.assertRaisesMessage(ValueError, msg):
+            self.r.article_set.add(new_article2)
+        self.r.article_set.add(new_article2, bulk=False)
+        self.assertEqual(new_article2.reporter.id, self.r.id)
+        self.assertQuerysetEqual(
+            self.r.article_set.all(),
+            ["<Article: John's second story>", "<Article: Paul's story>", "<Article: This is a test>"]
+        )
+        # Add the same article to a different article set - check that it moves.
+        self.r2.article_set.add(new_article2)
+        self.assertEqual(new_article2.reporter.id, self.r2.id)
+        self.assertQuerysetEqual(self.r2.article_set.all(), ["<Article: Paul's story>"])
+        # Adding an object of the wrong type raises TypeError.
+        with transaction.atomic():
+            with self.assertRaisesMessage(TypeError, "'Article' instance expected, got <Reporter:"):
+                self.r.article_set.add(self.r2)
+        self.assertQuerysetEqual(
+            self.r.article_set.all(),
+            ["<Article: John's second story>", "<Article: This is a test>"]
+        )
+    def test_set(self):
+        new_article = self.r.article_set.create(headline="John's second story", pub_date=datetime.date(2005, 7, 29))
+        new_article2 = self.r2.article_set.create(headline="Paul's story", pub_date=datetime.date(2006, 1, 17))
+        # Assign the article to the reporter.
+        new_article2.reporter = self.r
+        new_article2.save()
+        self.assertEqual(repr(new_article2.reporter), "<Reporter: John Smith>")
+        self.assertEqual(new_article2.reporter.id, self.r.id)
+        self.assertQuerysetEqual(self.r.article_set.all(), [
+            "<Article: John's second story>",
+            "<Article: Paul's story>",
+            "<Article: This is a test>",
+        ])
+        self.assertQuerysetEqual(self.r2.article_set.all(), [])
+        # Set the article back again.
+        self.r2.article_set.set([new_article, new_article2])
+        self.assertQuerysetEqual(self.r.article_set.all(), ["<Article: This is a test>"])
+        self.assertQuerysetEqual(
+            self.r2.article_set.all(),
+            ["<Article: John's second story>", "<Article: Paul's story>"]
+        )
+        # Funny case - because the ForeignKey cannot be null,
+        # existing members of the set must remain.
+        self.r.article_set.set([new_article])
+        self.assertQuerysetEqual(
+            self.r.article_set.all(),
+            ["<Article: John's second story>", "<Article: This is a test>"]
+        )
+        self.assertQuerysetEqual(self.r2.article_set.all(), ["<Article: Paul's story>"])
+    def test_reverse_assignment_deprecation(self):
+        msg = (
+            "Direct assignment to the reverse side of a related set is "
+            "prohibited. Use article_set.set() instead."
+        )
+        with self.assertRaisesMessage(TypeError, msg):
+            self.r2.article_set = []
+    def test_assign(self):
+        new_article = self.r.article_set.create(headline="John's second story", pub_date=datetime.date(2005, 7, 29))
+        new_article2 = self.r2.article_set.create(headline="Paul's story", pub_date=datetime.date(2006, 1, 17))
+        # Assign the article to the reporter directly using the descriptor.
+        new_article2.reporter = self.r
+        new_article2.save()
+        self.assertEqual(repr(new_article2.reporter), "<Reporter: John Smith>")
+        self.assertEqual(new_article2.reporter.id, self.r.id)
+        self.assertQuerysetEqual(self.r.article_set.all(), [
+            "<Article: John's second story>",
+            "<Article: Paul's story>",
+            "<Article: This is a test>",
+        ])
+        self.assertQuerysetEqual(self.r2.article_set.all(), [])
+        # Set the article back again using set() method.
+        self.r2.article_set.set([new_article, new_article2])
+        self.assertQuerysetEqual(self.r.article_set.all(), ["<Article: This is a test>"])
+        self.assertQuerysetEqual(
+            self.r2.article_set.all(),
+            ["<Article: John's second story>", "<Article: Paul's story>"]
+        )
+        # Because the ForeignKey cannot be null, existing members of the set
+        # must remain.
+        self.r.article_set.set([new_article])
+        self.assertQuerysetEqual(
+            self.r.article_set.all(),
+            ["<Article: John's second story>", "<Article: This is a test>"]
+        )
+        self.assertQuerysetEqual(self.r2.article_set.all(), ["<Article: Paul's story>"])
+        # Reporter cannot be null - there should not be a clear or remove method
+        self.assertFalse(hasattr(self.r2.article_set, 'remove'))
+        self.assertFalse(hasattr(self.r2.article_set, 'clear'))
+    def test_assign_fk_id_value(self):
+        parent = Parent.objects.create(name='jeff')
+        child1 = Child.objects.create(name='frank', parent=parent)
+        child2 = Child.objects.create(name='randy', parent=parent)
+        parent.bestchild = child1
+        parent.save()
+        parent.bestchild_id = child2.pk
+        parent.save()
+        self.assertEqual(parent.bestchild_id, child2.pk)
+        self.assertFalse(Parent.bestchild.is_cached(parent))
+        self.assertEqual(parent.bestchild, child2)
+        self.assertTrue(Parent.bestchild.is_cached(parent))
+        # Reassigning the same value doesn't clear cached instance.
+        parent.bestchild_id = child2.pk
+        self.assertTrue(Parent.bestchild.is_cached(parent))
+    def test_assign_fk_id_none(self):
+        parent = Parent.objects.create(name='jeff')
+        child = Child.objects.create(name='frank', parent=parent)
+        parent.bestchild = child
+        parent.save()
+        parent.bestchild_id = None
+        parent.save()
+        self.assertIsNone(parent.bestchild_id)
+        self.assertFalse(Parent.bestchild.is_cached(parent))
+        self.assertIsNone(parent.bestchild)
+        self.assertTrue(Parent.bestchild.is_cached(parent))
+    def test_selects(self):
+        self.r.article_set.create(headline="John's second story", pub_date=datetime.date(2005, 7, 29))
+        self.r2.article_set.create(headline="Paul's story", pub_date=datetime.date(2006, 1, 17))
+        # Reporter objects have access to their related Article objects.
+        self.assertQuerysetEqual(self.r.article_set.all(), [
+            "<Article: John's second story>",
+            "<Article: This is a test>",
+        ])
+        self.assertQuerysetEqual(self.r.article_set.filter(headline__startswith='This'), ["<Article: This is a test>"])
+        self.assertEqual(self.r.article_set.count(), 2)
+        self.assertEqual(self.r2.article_set.count(), 1)
+        # Get articles by id
+        self.assertQuerysetEqual(Article.objects.filter(id__exact=self.a.id), ["<Article: This is a test>"])
+        self.assertQuerysetEqual(Article.objects.filter(pk=self.a.id), ["<Article: This is a test>"])
+        # Query on an article property
+        self.assertQuerysetEqual(Article.objects.filter(headline__startswith='This'), ["<Article: This is a test>"])
+        # The API automatically follows relationships as far as you need.
+        # Use double underscores to separate relationships.
+        # This works as many levels deep as you want. There's no limit.
+        # Find all Articles for any Reporter whose first name is "John".
+        self.assertQuerysetEqual(
+            Article.objects.filter(reporter__first_name__exact='John'),
+            ["<Article: John's second story>", "<Article: This is a test>"]
+        )
+        # Implied __exact also works
+        self.assertQuerysetEqual(
+            Article.objects.filter(reporter__first_name='John'),
+            ["<Article: John's second story>", "<Article: This is a test>"]
+        )
+        # Query twice over the related field.
+        self.assertQuerysetEqual(
+            Article.objects.filter(reporter__first_name__exact='John', reporter__last_name__exact='Smith'),
+            ["<Article: John's second story>", "<Article: This is a test>"]
+        )
+        # The underlying query only makes one join when a related table is referenced twice.
+        queryset = Article.objects.filter(reporter__first_name__exact='John', reporter__last_name__exact='Smith')
+        self.assertNumQueries(1, list, queryset)
+        self.assertEqual(queryset.query.get_compiler(queryset.db).as_sql()[0].count('INNER JOIN'), 1)
+        # The automatically joined table has a predictable name.
+        self.assertQuerysetEqual(
+            Article.objects.filter(reporter__first_name__exact='John').extra(
+                where=["many_to_one_reporter.last_name='Smith'"]),
+            ["<Article: John's second story>", "<Article: This is a test>"]
+        )
+        # ... and should work fine with the string that comes out of forms.Form.cleaned_data
+        self.assertQuerysetEqual(
+            (Article.objects
+                .filter(reporter__first_name__exact='John')
+                .extra(where=["many_to_one_reporter.last_name='%s'" % 'Smith'])),
+            ["<Article: John's second story>", "<Article: This is a test>"]
+        )
+        # Find all Articles for a Reporter.
+        # Use direct ID check, pk check, and object comparison
+        self.assertQuerysetEqual(
+            Article.objects.filter(reporter__id__exact=self.r.id),
+            [
+                "<Article: John's second story>",
+                "<Article: This is a test>",
+            ])
+        self.assertQuerysetEqual(
+            Article.objects.filter(reporter__pk=self.r.id),
+            [
+                "<Article: John's second story>",
+                "<Article: This is a test>",
+            ])
+        self.assertQuerysetEqual(
+            Article.objects.filter(reporter=self.r.id),
+            [
+                "<Article: John's second story>",
+                "<Article: This is a test>",
+            ])
+        self.assertQuerysetEqual(
+            Article.objects.filter(reporter=self.r),
+            [
+                "<Article: John's second story>",
+                "<Article: This is a test>",
+            ])
+        self.assertQuerysetEqual(
+            Article.objects.filter(reporter__in=[self.r.id, self.r2.id]).distinct(),
+            [
+                "<Article: John's second story>",
+                "<Article: Paul's story>",
+                "<Article: This is a test>",
+            ])
+        self.assertQuerysetEqual(
+            Article.objects.filter(reporter__in=[self.r, self.r2]).distinct(),
+            [
+                "<Article: John's second story>",
+                "<Article: Paul's story>",
+                "<Article: This is a test>",
+            ])
+        # You can also use a queryset instead of a literal list of instances.
+        # The queryset must be reduced to a list of values using values(),
+        # then converted into a query
+        self.assertQuerysetEqual(
+            Article.objects.filter(
+                reporter__in=Reporter.objects.filter(first_name='John').values('pk').query
+            ).distinct(),
+            [
+                "<Article: John's second story>",
+                "<Article: This is a test>",
+            ])
+    def test_reverse_selects(self):
+        a3 = Article.objects.create(
+            headline="Third article",
+            pub_date=datetime.date(2005, 7, 27),
+            reporter_id=self.r.id,
+        )
+        Article.objects.create(
+            headline="Fourth article",
+            pub_date=datetime.date(2005, 7, 27),
+            reporter_id=self.r.id,
+        )
+        john_smith = ["<Reporter: John Smith>"]
+        # Reporters can be queried
+2. success to run `bash(grep -rn 'validate' tests/many_to_one/tests.py | head -10)`
+715:    def test_cached_relation_invalidated_on_save(self):
+717:        Model.save() invalidates stale ForeignKey relations after a primary key
+3. success to run `bash(head -300 tests/model_fields/test_foreignkey.py)`
+from decimal import Decimal
+from django.apps import apps
+from django.core import checks
+from django.core.exceptions import FieldError
+from django.db import models
+from django.test import TestCase, skipIfDBFeature
+from django.test.utils import isolate_apps
+from .models import Bar, FkToChar, Foo, PrimaryKeyCharModel
+class ForeignKeyTests(TestCase):
+    def test_callable_default(self):
+        """A lazy callable may be used for ForeignKey.default."""
+        a = Foo.objects.create(id=1, a='abc', d=Decimal('12.34'))
+        b = Bar.objects.create(b='bcd')
+        self.assertEqual(b.a, a)
+    @skipIfDBFeature('interprets_empty_strings_as_nulls')
+    def test_empty_string_fk(self):
+        """
+        Empty strings foreign key values don't get converted to None (#19299).
+        """
+        char_model_empty = PrimaryKeyCharModel.objects.create(string='')
+        fk_model_empty = FkToChar.objects.create(out=char_model_empty)
+        fk_model_empty = FkToChar.objects.select_related('out').get(id=fk_model_empty.pk)
+        self.assertEqual(fk_model_empty.out, char_model_empty)
+    @isolate_apps('model_fields')
+    def test_warning_when_unique_true_on_fk(self):
+        class Foo(models.Model):
+            pass
+        class FKUniqueTrue(models.Model):
+            fk_field = models.ForeignKey(Foo, models.CASCADE, unique=True)
+        model = FKUniqueTrue()
+        expected_warnings = [
+            checks.Warning(
+                'Setting unique=True on a ForeignKey has the same effect as using a OneToOneField.',
+                hint='ForeignKey(unique=True) is usually better served by a OneToOneField.',
+                obj=FKUniqueTrue.fk_field.field,
+                id='fields.W342',
+            )
+        ]
+        warnings = model.check()
+        self.assertEqual(warnings, expected_warnings)
+    def test_related_name_converted_to_text(self):
+        rel_name = Bar._meta.get_field('a').remote_field.related_name
+        self.assertIsInstance(rel_name, str)
+    def test_abstract_model_pending_operations(self):
+        """
+        Foreign key fields declared on abstract models should not add lazy
+        relations to resolve relationship declared as string (#24215).
+        """
+        pending_ops_before = list(apps._pending_operations.items())
+        class AbstractForeignKeyModel(models.Model):
+            fk = models.ForeignKey('missing.FK', models.CASCADE)
+            class Meta:
+                abstract = True
+        self.assertIs(AbstractForeignKeyModel._meta.apps, apps)
+        self.assertEqual(
+            pending_ops_before,
+            list(apps._pending_operations.items()),
+            'Pending lookup added for a foreign key on an abstract model'
+        )
+    @isolate_apps('model_fields', 'model_fields.tests')
+    def test_abstract_model_app_relative_foreign_key(self):
+        class AbstractReferent(models.Model):
+            reference = models.ForeignKey('Referred', on_delete=models.CASCADE)
+            class Meta:
+                app_label = 'model_fields'
+                abstract = True
+        def assert_app_model_resolved(label):
+            class Referred(models.Model):
+                class Meta:
+                    app_label = label
+            class ConcreteReferent(AbstractReferent):
+                class Meta:
+                    app_label = label
+            self.assertEqual(ConcreteReferent._meta.get_field('reference').related_model, Referred)
+        assert_app_model_resolved('model_fields')
+        assert_app_model_resolved('tests')
+    @isolate_apps('model_fields')
+    def test_to_python(self):
+        class Foo(models.Model):
+            pass
+        class Bar(models.Model):
+            fk = models.ForeignKey(Foo, models.CASCADE)
+        self.assertEqual(Bar._meta.get_field('fk').to_python('1'), 1)
+    @isolate_apps('model_fields')
+    def test_fk_to_fk_get_col_output_field(self):
+        class Foo(models.Model):
+            pass
+        class Bar(models.Model):
+            foo = models.ForeignKey(Foo, models.CASCADE, primary_key=True)
+        class Baz(models.Model):
+            bar = models.ForeignKey(Bar, models.CASCADE, primary_key=True)
+        col = Baz._meta.get_field('bar').get_col('alias')
+        self.assertIs(col.output_field, Foo._meta.pk)
+    @isolate_apps('model_fields')
+    def test_recursive_fks_get_col(self):
+        class Foo(models.Model):
+            bar = models.ForeignKey('Bar', models.CASCADE, primary_key=True)
+        class Bar(models.Model):
+            foo = models.ForeignKey(Foo, models.CASCADE, primary_key=True)
+        with self.assertRaisesMessage(ValueError, 'Cannot resolve output_field'):
+            Foo._meta.get_field('bar').get_col('alias')
+    @isolate_apps('model_fields')
+    def test_non_local_to_field(self):
+        class Parent(models.Model):
+            key = models.IntegerField(unique=True)
+        class Child(Parent):
+            pass
+        class Related(models.Model):
+            child = models.ForeignKey(Child, on_delete=models.CASCADE, to_field='key')
+        msg = (
+            "'model_fields.Related.child' refers to field 'key' which is not "
+            "local to model 'model_fields.Child'."
+        )
+        with self.assertRaisesMessage(FieldError, msg):
+            Related._meta.get_field('child').related_fields
+4. success to run `bash(grep -rn '_base_manager\|_default_manager' tests/ | head -10)`
+tests/managers_regress/tests.py:34:        self.assertQuerysetEqual(Child1._default_manager.all(), ["<Child1: a1>"])
+tests/managers_regress/tests.py:36:        self.assertQuerysetEqual(Child2._default_manager.all(), ["<Child2: b1>"])
+tests/managers_regress/tests.py:39:        self.assertQuerysetEqual(Child3._default_manager.all(), ["<Child3: c1>"])
+tests/managers_regress/tests.py:45:        self.assertQuerysetEqual(Child4._default_manager.order_by('data'), [
+tests/managers_regress/tests.py:52:        self.assertQuerysetEqual(Child5._default_manager.all(), ["<Child5: fred>"])
+tests/managers_regress/tests.py:53:        self.assertQuerysetEqual(Child6._default_manager.all(), ["<Child6: f1>", "<Child6: f2>"], ordered=False)
+tests/managers_regress/tests.py:55:            Child7._default_manager.order_by('name'),
+tests/managers_regress/tests.py:180:        self.assertIsInstance(PlainModel._base_manager, models.Manager)
+tests/managers_regress/tests.py:181:        self.assertIsInstance(PlainModel._default_manager, CustomManager)
+tests/managers_regress/tests.py:186:        self.assertIsInstance(ModelWithAbstractParent._base_manager, models.Manager)
+5. success to run `bash(grep -rn 'archived' tests/ | head -10)`
+No output
+[FIX_TASK] 4/250 | 83.5s/1300.0s | $0.0464/$2.5000
+   ├── 🛅 Input token size: 29654 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=8)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 36s/50s | Total: 36s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 5 function tools
+1. success to run `bash(find . -name 'models.py' -path '*/many_to_one/*' | head -5)`
+./tests/many_to_one/models.py
+2. success to run `bash(head -100 tests/many_to_one/models.py)`
+"""
+Many-to-one relationships
+To define a many-to-one relationship, use ``ForeignKey()``.
+"""
+from django.db import models
+class Reporter(models.Model):
+    first_name = models.CharField(max_length=30)
+    last_name = models.CharField(max_length=30)
+    email = models.EmailField()
+    def __str__(self):
+        return "%s %s" % (self.first_name, self.last_name)
+class Article(models.Model):
+    headline = models.CharField(max_length=100)
+    pub_date = models.DateField()
+    reporter = models.ForeignKey(Reporter, models.CASCADE)
+    class Meta:
+        ordering = ('headline',)
+    def __str__(self):
+        return self.headline
+class Country(models.Model):
+    id = models.SmallAutoField(primary_key=True)
+    name = models.CharField(max_length=50)
+class City(models.Model):
+    id = models.BigAutoField(primary_key=True)
+    country = models.ForeignKey(Country, models.CASCADE, related_name='cities', null=True)
+    name = models.CharField(max_length=50)
+class District(models.Model):
+    city = models.ForeignKey(City, models.CASCADE, related_name='districts', null=True)
+    name = models.CharField(max_length=50)
+    def __str__(self):
+        return self.name
+# If ticket #1578 ever slips back in, these models will not be able to be
+# created (the field names being lowercased versions of their opposite classes
+# is important here).
+class First(models.Model):
+    second = models.IntegerField()
+class Second(models.Model):
+    first = models.ForeignKey(First, models.CASCADE, related_name='the_first')
+# Protect against repetition of #1839, #2415 and #2536.
+class Third(models.Model):
+    name = models.CharField(max_length=20)
+    third = models.ForeignKey('self', models.SET_NULL, null=True, related_name='child_set')
+class Parent(models.Model):
+    name = models.CharField(max_length=20, unique=True)
+    bestchild = models.ForeignKey('Child', models.SET_NULL, null=True, related_name='favored_by')
+class Child(models.Model):
+    name = models.CharField(max_length=20)
+    parent = models.ForeignKey(Parent, models.CASCADE)
+class ChildNullableParent(models.Model):
+    parent = models.ForeignKey(Parent, models.CASCADE, null=True)
+class ToFieldChild(models.Model):
+    parent = models.ForeignKey(Parent, models.CASCADE, to_field='name', related_name='to_field_children')
+# Multiple paths to the same model (#7110, #7125)
+class Category(models.Model):
+    name = models.CharField(max_length=20)
+    def __str__(self):
+        return self.name
+class Record(models.Model):
+    category = models.ForeignKey(Category, models.CASCADE)
+class Relation(models.Model):
+    left = models.ForeignKey(Record, models.CASCADE, related_name='left_set')
+    right = models.ForeignKey(Record, models.CASCADE, related_name='right_set')
+    def __str__(self):
+3. success to run `bash(find . -name 'models.py' -path '*/model_fields/*' | head -5)`
+./tests/model_fields/models.py
+4. success to run `bash(head -100 tests/model_fields/models.py)`
+import json
+import os
+import tempfile
+import uuid
+from django.contrib.contenttypes.fields import (
+    GenericForeignKey, GenericRelation,
+)
+from django.contrib.contenttypes.models import ContentType
+from django.core.files.storage import FileSystemStorage
+from django.core.serializers.json import DjangoJSONEncoder
+from django.db import models
+from django.db.models.fields.files import ImageFieldFile
+from django.utils.translation import gettext_lazy as _
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+class Foo(models.Model):
+    a = models.CharField(max_length=10)
+    d = models.DecimalField(max_digits=5, decimal_places=3)
+def get_foo():
+    return Foo.objects.get(id=1).pk
+class Bar(models.Model):
+    b = models.CharField(max_length=10)
+    a = models.ForeignKey(Foo, models.CASCADE, default=get_foo, related_name='bars')
+class Whiz(models.Model):
+    CHOICES = (
+        ('Group 1', (
+            (1, 'First'),
+            (2, 'Second'),
+        )
+        ),
+        ('Group 2', (
+            (3, 'Third'),
+            (4, 'Fourth'),
+        )
+        ),
+        (0, 'Other'),
+        (5, _('translated')),
+    )
+    c = models.IntegerField(choices=CHOICES, null=True)
+class WhizDelayed(models.Model):
+    c = models.IntegerField(choices=(), null=True)
+# Contrived way of adding choices later.
+WhizDelayed._meta.get_field('c').choices = Whiz.CHOICES
+class WhizIter(models.Model):
+    c = models.IntegerField(choices=iter(Whiz.CHOICES), null=True)
+class WhizIterEmpty(models.Model):
+    c = models.CharField(choices=iter(()), blank=True, max_length=1)
+class Choiceful(models.Model):
+    no_choices = models.IntegerField(null=True)
+    empty_choices = models.IntegerField(choices=(), null=True)
+    with_choices = models.IntegerField(choices=[(1, 'A')], null=True)
+    empty_choices_bool = models.BooleanField(choices=())
+    empty_choices_text = models.TextField(choices=())
+class BigD(models.Model):
+    d = models.DecimalField(max_digits=32, decimal_places=30)
+class FloatModel(models.Model):
+    size = models.FloatField()
+class BigS(models.Model):
+    s = models.SlugField(max_length=255)
+class UnicodeSlugField(models.Model):
+    s = models.SlugField(max_length=255, allow_unicode=True)
+class AutoModel(models.Model):
+    value = models.AutoField(primary_key=True)
+class BigAutoModel(models.Model):
+    value = models.BigAutoField(primary_key=True)
+5. success to run `bash(grep -rn 'Manager' tests/many_to_one/models.py | head -10)`
+105:class SchoolManager(models.Manager):
+112:    objects = SchoolManager()
+[FIX_TASK] 5/250 | 119.5s/1300.0s | $0.0697/$2.5000
+   ├── 🛅 Input token size: 32316 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=10)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 48s/50s | Total: 48s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 4 function tools
+1. success to run `bash(grep -A 10 -B 5 'class.*Manager' tests/many_to_one/models.py)`
+def __str__(self):
+        return "%s - %s" % (self.left.category.name, self.right.category.name)
+# Test related objects visibility.
+class SchoolManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_public=True)
+class School(models.Model):
+    is_public = models.BooleanField(default=False)
+    objects = SchoolManager()
+class Student(models.Model):
+2. success to run `bash(grep -rn 'class.*Manager' tests/model_fields/models.py)`
+No output
+3. success to run `bash(create_file, reproduce_issue.py, import os
+import sys
+import django
+from django.conf import settings
+from django.db import models
+from django.test import TestCase
+from django.core.exceptions import ValidationError
+# Add the project root to the path
+sys.path.insert(0, '/sandbox/repo')
+# Configure Django settings
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'django.conf.global_settings')
+django.setup()
+# Define models as described in the issue
+class ArticleManager(models.Manager):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.filter(archived=False)
+class Article(models.Model):
+    title = models.CharField(max_length=100)
+    archived = models.BooleanField(default=False)
+    # Don't include archived articles by default.
+    objects = ArticleManager()
+    
+    class Meta:
+        app_label = 'test'
+class FavoriteArticle(models.Model):
+    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    
+    class Meta:
+        app_label = 'test'
+# Test the issue
+def test_foreign_key_validation_with_custom_manager():
+    print('Testing ForeignKey validation with custom manager...')
+    
+    # Create an archived article (this should exist in DB but be filtered by default manager)
+    archived_article = Article(title='Archived Article', archived=True)
+    archived_article.save()
+    
+    print(f'Created archived article with ID: {archived_article.id}')
+    
+    # Try to validate a FavoriteArticle with the archived article
+    favorite = FavoriteArticle(article=archived_article)
+    
+    try:
+        # This should fail with the current implementation
+        favorite.full_clean()
+        print('Validation passed - this is unexpected with the bug present')
+        return False
+    except ValidationError as e:
+        print(f'Validation failed as expected: {e}')
+        return True
+if __name__ == '__main__':
+    result = test_foreign_key_validation_with_custom_manager()
+    print(f'Test result (True means bug reproduced): {result}'))`
+Error executing tool `bash`: ❌ Invalid args:
+1. Unexpected keyword argument 'file_text' is not in schema
+2. Unexpected keyword argument 'path' is not in schema
+*check this tool's doc: {'name': 'bash', 'description': 'Run commands in a bash shell with optional test result parsing.
+State is persistent across command calls. Please avoid commands that may produce very large output.
+WHEN TO USE:
+- Exploring repository structure: ls, find, tree commands
+- Finding files: find . -name \'pattern\' -type f
+- Searching code: grep -rn \'pattern\' directory/
+- Running commands: [runner] [file_path] [arguments], etc.
+- Environment setup: export VAR=value, cd directory, source activate
+CRITICAL: Do not try to install packages because you cannot access Internet
+EFFICIENCY TIP: This tool is ideal for batch operations to reduce tool call overhead.
+- Read multiple files at once: head -300 [file1_path] [file2_path] [file3_path]
+- Search across multiple files: grep -n \'[pattern]\' [file1_path] [file2_path] [file3_path] | head -300
+- Combine file operations: for f in [file1_path] [file2_path]; do echo "=== $f ==="; head -300 $f; done
+- Chain operations: command1 && command2 or command1; command2
+- For further reading after first 300 lines: sed -n \'301,600p\' [file_path] (lines 301-600), sed -n \'601,900p\' (lines 601-900), etc.
+FILE READING GUIDELINE: Always use head -300 for first 300 lines, then use sed for further reading if needed.
+- First 300 lines: head -300 [file_path] (reads first 300 lines, or all lines if file is smaller)
+- Further reading (lines 301-600): sed -n \'301,600p\' [file_path]
+- Further reading (lines 601-900): sed -n \'601,900p\' [file_path]
+- No need to check file size first - head -300 works for any file size
+- For search results: grep -n \'[pattern]\' [file_path] | head -300
+- For command output: [command] | head -300
+- Examples:
+    * First 300 lines: head -300 file_path
+    * Next 300 lines (301-600): sed -n \'301,600p\' file_path
+    * Multiple files: head -300 file1_path file2_path (shows first 300 lines of each)
+    * Search results: grep -r \'pattern\' . | head -300 (limit to 300 lines)
+SMART TEST PARSING: When running test commands, set is_test_command to true 
+to get intelligent parsing showing only failed tests and summary.
+Output: Command output (raw or parsed based on is_test_command flag)', 'input_schema': {'type': 'object', 'properties': {'command': {'type': 'string', 'description': 'The bash command to run. Use this for batch operations to minimize tool calls.'}, 'is_test_command': {'type': 'boolean', 'description': 'Set to true when running test commands to get parsed output showing only failed tests'}}, 'required': ['command']}}
+4. success to run `bash(python reproduce_issue.py)`
+python: can't open file '/sandbox/repo/reproduce_issue.py': [Errno 2] No such file or directory
+[FIX_TASK] 6/250 | 168.1s/1300.0s | $0.1111/$2.5000
+   ├── 🛅 Input token size: 35661 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=12)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ❌ Request timeout after 50s for model Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Attempt: 1/5 | Timeout: 50s/50s | Total: 50s
+   ├── 💤 Sleeping 1s before retrying with same model...
+   ├── 🔂 Starting Request | Attempt: 2/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 2/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 14s/50s | Total: 65s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 3 function tools
+1. success to run `create_file(reproduce_issue.py, import os
+import sys
+import django
+from django.conf import settings
+from django.db import models
+from django.test import TestCase
+from django.core.exceptions import ValidationError
+# Add the project root to the path
+sys.path.insert(0, '/sandbox/repo')
+# Configure Django settings
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'django.conf.global_settings')
+django.setup()
+# Define models as described in the issue
+class ArticleManager(models.Manager):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.filter(archived=False)
+class Article(models.Model):
+    title = models.CharField(max_length=100)
+    archived = models.BooleanField(default=False)
+    # Don't include archived articles by default.
+    objects = ArticleManager()
+    
+    class Meta:
+        app_label = 'test'
+class FavoriteArticle(models.Model):
+    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    
+    class Meta:
+        app_label = 'test'
+# Test the issue
+def test_foreign_key_validation_with_custom_manager():
+    print('Testing ForeignKey validation with custom manager...')
+    
+    # Create an archived article (this should exist in DB but be filtered by default manager)
+    archived_article = Article(title='Archived Article', archived=True)
+    archived_article.save()
+    
+    print(f'Created archived article with ID: {archived_article.id}')
+    
+    # Try to validate a FavoriteArticle with the archived article
+    favorite = FavoriteArticle(article=archived_article)
+    
+    try:
+        # This should fail with the current implementation
+        favorite.full_clean()
+        print('Validation passed - this is unexpected with the bug present')
+        return False
+    except ValidationError as e:
+        print(f'Validation failed as expected: {e}')
+        return True
+if __name__ == '__main__':
+    result = test_foreign_key_validation_with_custom_manager()
+    print(f'Test result (True means bug reproduced): {result}))`
+File created successfully at: reproduce_issue.py
+2. success to run `bash(ls -la reproduce_issue.py)`
+-rw-r--r-- 1 root root 1970 Dec 10 01:55 reproduce_issue.py
+3. success to run `bash(python reproduce_issue.py)`
+File "/sandbox/repo/reproduce_issue.py", line 61
+    print(f'Test result (True means bug reproduced): {result})
+          ^
+SyntaxError: unterminated f-string literal (detected at line 61)
+[FIX_TASK] 7/250 | 233.6s/1300.0s | $0.1396/$2.5000
+   ├── 🛅 Input token size: 37560 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=14)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 10s/50s | Total: 10s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 4 function tools
+1. success to run `str_replace_in_file(reproduce_issue.py,     print(f'Test result (True means bug reproduced): {result})',     print(f'Test result (True means bug reproduced): {result}'))`
+Error: old_str not found in reproduce_issue.py
+File content (first 50 lines of 61 total, with line numbers):
+     1	import os
+     2	import sys
+     3	import django
+     4	from django.conf import settings
+     5	from django.db import models
+     6	from django.test import TestCase
+     7	from django.core.exceptions import ValidationError
+     8	
+     9	# Add the project root to the path
+    10	sys.path.insert(0, '/sandbox/repo')
+    11	
+    12	# Configure Django settings
+    13	os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'django.conf.global_settings')
+    14	django.setup()
+    15	
+    16	# Define models as described in the issue
+    17	class ArticleManager(models.Manager):
+    18	    def get_queryset(self):
+    19	        qs = super().get_queryset()
+    20	        return qs.filter(archived=False)
+    21	
+    22	class Article(models.Model):
+    23	    title = models.CharField(max_length=100)
+    24	    archived = models.BooleanField(default=False)
+    25	    # Don't include archived articles by default.
+    26	    objects = ArticleManager()
+    27	    
+    28	    class Meta:
+    29	        app_label = 'test'
+    30	
+    31	class FavoriteArticle(models.Model):
+    32	    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    33	    
+    34	    class Meta:
+    35	        app_label = 'test'
+    36	
+    37	# Test the issue
+    38	def test_foreign_key_validation_with_custom_manager():
+    39	    print('Testing ForeignKey validation with custom manager...')
+    40	    
+    41	    # Create an archived article (this should exist in DB but be filtered by default manager)
+    42	    archived_article = Article(title='Archived Article', archived=True)
+    43	    archived_article.save()
+    44	    
+    45	    print(f'Created archived article with ID: {archived_article.id}')
+    46	    
+    47	    # Try to validate a FavoriteArticle with the archived article
+    48	    favorite = FavoriteArticle(article=archived_article)
+    49	    
+    50	    try:
+... (file has 61 total lines)
+Please check the file content above and provide the exact string to replace.
+To read more lines, use: bash sed -n '51,100p' reproduce_issue.py (for lines 51-100), or bash sed -n '101,150p' reproduce_issue.py (for lines 101-150), etc.
+2. success to run `bash(python reproduce_issue.py)`
+File "/sandbox/repo/reproduce_issue.py", line 61
+    print(f'Test result (True means bug reproduced): {result})
+          ^
+SyntaxError: unterminated f-string literal (detected at line 61)
+3. success to run `bash(grep -A 10 -B 5 '_base_manager' django/db/models/base.py)`
+index.set_name_with_model(cls)
+        class_prepared.send(sender=cls)
+    @property
+    def _base_manager(cls):
+        return cls._meta.base_manager
+    @property
+    def _default_manager(cls):
+        return cls._meta.default_manager
+class ModelStateFieldsCacheDescriptor:
+    def __get__(self, instance, cls=None):
+        if instance is None:
+--
+                raise ValueError(
+                    'Found "%s" in fields argument. Relations and transforms '
+                    'are not allowed in fields.' % LOOKUP_SEP)
+        hints = {'instance': self}
+        db_instance_qs = self.__class__._base_manager.db_manager(using, hints=hints).filter(pk=self.pk)
+        # Use provided fields, if not set then reload all non-deferred fields.
+        deferred_fields = self.get_deferred_fields()
+        if fields is not None:
+            fields = list(fields)
+            db_instance_qs = db_instance_qs.only(*fields)
+        elif deferred_fields:
+            fields = [f.attname for f in self._meta.concrete_fields
+                      if f.attname not in deferred_fields]
+            db_instance_qs = db_instance_qs.only(*fields)
+--
+            meta.pk.default is not NOT_PROVIDED
+        ):
+            force_insert = True
+        # If possible, try an UPDATE. If that doesn't update anything, do an INSERT.
+        if pk_set and not force_insert:
+            base_qs = cls._base_manager.using(using)
+            values = [(f, None, (getattr(self, f.attname) if raw else f.pre_save(self, False)))
+                      for f in non_pks]
+            forced_update = update_fields or force_update
+            updated = self._do_update(base_qs, using, pk_val, values, update_fields,
+                                      forced_update)
+            if force_update and not updated:
+                raise DatabaseError("Forced update did not affect any rows.")
+            if update_fields and not updated:
+                raise DatabaseError("Save with update_fields did not affect any rows.")
+        if not updated:
+            if meta.order_with_respect_to:
+                # If this is a model with an order_with_respect_to
+                # autopopulate the _order field
+                field = meta.order_with_respect_to
+                filter_args = field.get_filter_kwargs_for_object(self)
+                self._order = cls._base_manager.using(using).filter(**filter_args).aggregate(
+                    _order__max=Coalesce(
+                        ExpressionWrapper(Max('_order') + Value(1), output_field=IntegerField()),
+                        Value(0),
+                    ),
+                )['_order__max']
+            fields = meta.local_concrete_fields
+            if not pk_set:
+                fields = [f for f in fields if f is not meta.auto_field]
+            returning_fields = meta.db_returning_fields
+            results = self._do_insert(cls._base_manager, using, fields, returning_fields, raw)
+            if results:
+                for value, field in zip(results[0], returning_fields):
+                    setattr(self, field.attname, value)
+        return updated
+    def _do_update(self, base_qs, using, pk_val, values, update_fields, forced_update):
+        """
+        Try to update the model. Return True if the model was updated (if an
+        update query was done and a matching row was found in the DB).
+        """
+4. success to run `bash(grep -A 10 -B 5 '_default_manager' django/db/models/base.py)`
+@property
+    def _base_manager(cls):
+        return cls._meta.base_manager
+    @property
+    def _default_manager(cls):
+        return cls._meta.default_manager
+class ModelStateFieldsCacheDescriptor:
+    def __get__(self, instance, cls=None):
+        if instance is None:
+            return self
+        res = instance.fields_cache = {}
+        return res
+--
+        op = 'gt' if is_next else 'lt'
+        order = '' if is_next else '-'
+        param = getattr(self, field.attname)
+        q = Q(**{'%s__%s' % (field.name, op): param})
+        q = q | Q(**{field.name: param, 'pk__%s' % op: self.pk})
+        qs = self.__class__._default_manager.using(self._state.db).filter(**kwargs).filter(q).order_by(
+            '%s%s' % (order, field.name), '%spk' % order
+        )
+        try:
+            return qs[0]
+        except IndexError:
+            raise self.DoesNotExist("%s matching query does not exist." % self.__class__._meta.object_name)
+    def _get_next_or_previous_in_order(self, is_next):
+        cachename = "__%s_order_cache" % is_next
+        if not hasattr(self, cachename):
+            op = 'gt' if is_next else 'lt'
+            order = '_order' if is_next else '-_order'
+            order_field = self._meta.order_with_respect_to
+            filter_args = order_field.get_filter_kwargs_for_object(self)
+            obj = self.__class__._default_manager.filter(**filter_args).filter(**{
+                '_order__%s' % op: self.__class__._default_manager.values('_order').filter(**{
+                    self._meta.pk.name: self.pk
+                })
+            }).order_by(order)[:1].get()
+            setattr(self, cachename, obj)
+        return getattr(self, cachename)
+    def prepare_database_save(self, field):
+        if self.pk is None:
+            raise ValueError("Unsaved model instance %r cannot be used in an ORM query." % self)
+        return getattr(self, field.remote_field.get_related_field().attname)
+--
+            # some fields were skipped, no reason to do the check
+            if len(unique_check) != len(lookup_kwargs):
+                continue
+            qs = model_class._default_manager.filter(**lookup_kwargs)
+            # Exclude the current object from the query if we are editing an
+            # instance (as opposed to creating a new one)
+            # Note that we need to use the pk as defined by model_class, not
+            # self.pk. These can be different fields because model inheritance
+            # allows single model to have effectively multiple primary keys.
+            # Refs #17615.
+            model_class_pk = self._get_pk_val(model_class._meta)
+            if not self._state.adding and model_class_pk is not None:
+                qs = qs.exclude(pk=model_class_pk)
+--
+                lookup_kwargs['%s__year' % unique_for] = date.year
+            else:
+                lookup_kwargs['%s__%s' % (unique_for, lookup_type)] = getattr(date, lookup_type)
+            lookup_kwargs[field] = getattr(self, field)
+            qs = model_class._default_manager.filter(**lookup_kwargs)
+            # Exclude the current object from the query if we are editing an
+            # instance (as opposed to creating a new one)
+            if not self._state.adding and self.pk is not None:
+                qs = qs.exclude(pk=self.pk)
+            if qs.exists():
+                errors.setdefault(field, []).append(
+                    self.date_error_message(lookup_type, field, unique_for)
+                )
+        return errors
+[FIX_TASK] 8/250 | 243.6s/1300.0s | $0.1688/$2.5000
+   ├── 🛅 Input token size: 41091 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=16)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 4s/50s | Total: 4s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 3 function tools
+1. success to run `bash(sed -n '51,61p' reproduce_issue.py)`
+# This should fail with the current implementation
+        favorite.full_clean()
+        print('Validation passed - this is unexpected with the bug present')
+        return False
+    except ValidationError as e:
+        print(f'Validation failed as expected: {e}')
+        return True
+if __name__ == '__main__':
+    result = test_foreign_key_validation_with_custom_manager()
+    print(f'Test result (True means bug reproduced): {result})
+2. success to run `str_replace_in_file(reproduce_issue.py,     print(f'Test result (True means bug reproduced): {result})',     print(f'Test result (True means bug reproduced): {result}'))`
+Error: old_str not found in reproduce_issue.py
+File content (first 50 lines of 61 total, with line numbers):
+     1	import os
+     2	import sys
+     3	import django
+     4	from django.conf import settings
+     5	from django.db import models
+     6	from django.test import TestCase
+     7	from django.core.exceptions import ValidationError
+     8	
+     9	# Add the project root to the path
+    10	sys.path.insert(0, '/sandbox/repo')
+    11	
+    12	# Configure Django settings
+    13	os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'django.conf.global_settings')
+    14	django.setup()
+    15	
+    16	# Define models as described in the issue
+    17	class ArticleManager(models.Manager):
+    18	    def get_queryset(self):
+    19	        qs = super().get_queryset()
+    20	        return qs.filter(archived=False)
+    21	
+    22	class Article(models.Model):
+    23	    title = models.CharField(max_length=100)
+    24	    archived = models.BooleanField(default=False)
+    25	    # Don't include archived articles by default.
+    26	    objects = ArticleManager()
+    27	    
+    28	    class Meta:
+    29	        app_label = 'test'
+    30	
+    31	class FavoriteArticle(models.Model):
+    32	    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    33	    
+    34	    class Meta:
+    35	        app_label = 'test'
+    36	
+    37	# Test the issue
+    38	def test_foreign_key_validation_with_custom_manager():
+    39	    print('Testing ForeignKey validation with custom manager...')
+    40	    
+    41	    # Create an archived article (this should exist in DB but be filtered by default manager)
+    42	    archived_article = Article(title='Archived Article', archived=True)
+    43	    archived_article.save()
+    44	    
+    45	    print(f'Created archived article with ID: {archived_article.id}')
+    46	    
+    47	    # Try to validate a FavoriteArticle with the archived article
+    48	    favorite = FavoriteArticle(article=archived_article)
+    49	    
+    50	    try:
+... (file has 61 total lines)
+Please check the file content above and provide the exact string to replace.
+To read more lines, use: bash sed -n '51,100p' reproduce_issue.py (for lines 51-100), or bash sed -n '101,150p' reproduce_issue.py (for lines 101-150), etc.
+3. success to run `bash(python reproduce_issue.py)`
+File "/sandbox/repo/reproduce_issue.py", line 61
+    print(f'Test result (True means bug reproduced): {result})
+          ^
+SyntaxError: unterminated f-string literal (detected at line 61)
+[FIX_TASK] 9/250 | 248.0s/1300.0s | $0.2010/$2.5000
+   ├── 🛅 Input token size: 42450 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=18)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 6s/50s | Total: 6s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 3 function tools
+1. success to run `bash(sed -n '55,61p' reproduce_issue.py)`
+except ValidationError as e:
+        print(f'Validation failed as expected: {e}')
+        return True
+if __name__ == '__main__':
+    result = test_foreign_key_validation_with_custom_manager()
+    print(f'Test result (True means bug reproduced): {result})
+2. success to run `str_replace_in_file(reproduce_issue.py,     print(f'Test result (True means bug reproduced): {result})
+if __name__ == '__main__':
+    result = test_foreign_key_validation_with_custom_manager()
+    print(f'Test result (True means bug reproduced): {result})
+,     print(f'Test result (True means bug reproduced): {result}')
+if __name__ == '__main__':
+    result = test_foreign_key_validation_with_custom_manager()
+    print(f'Test result (True means bug reproduced): {result}')
+)`
+Error: old_str not found in reproduce_issue.py
+File content (first 50 lines of 61 total, with line numbers):
+     1	import os
+     2	import sys
+     3	import django
+     4	from django.conf import settings
+     5	from django.db import models
+     6	from django.test import TestCase
+     7	from django.core.exceptions import ValidationError
+     8	
+     9	# Add the project root to the path
+    10	sys.path.insert(0, '/sandbox/repo')
+    11	
+    12	# Configure Django settings
+    13	os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'django.conf.global_settings')
+    14	django.setup()
+    15	
+    16	# Define models as described in the issue
+    17	class ArticleManager(models.Manager):
+    18	    def get_queryset(self):
+    19	        qs = super().get_queryset()
+    20	        return qs.filter(archived=False)
+    21	
+    22	class Article(models.Model):
+    23	    title = models.CharField(max_length=100)
+    24	    archived = models.BooleanField(default=False)
+    25	    # Don't include archived articles by default.
+    26	    objects = ArticleManager()
+    27	    
+    28	    class Meta:
+    29	        app_label = 'test'
+    30	
+    31	class FavoriteArticle(models.Model):
+    32	    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    33	    
+    34	    class Meta:
+    35	        app_label = 'test'
+    36	
+    37	# Test the issue
+    38	def test_foreign_key_validation_with_custom_manager():
+    39	    print('Testing ForeignKey validation with custom manager...')
+    40	    
+    41	    # Create an archived article (this should exist in DB but be filtered by default manager)
+    42	    archived_article = Article(title='Archived Article', archived=True)
+    43	    archived_article.save()
+    44	    
+    45	    print(f'Created archived article with ID: {archived_article.id}')
+    46	    
+    47	    # Try to validate a FavoriteArticle with the archived article
+    48	    favorite = FavoriteArticle(article=archived_article)
+    49	    
+    50	    try:
+... (file has 61 total lines)
+Please check the file content above and provide the exact string to replace.
+To read more lines, use: bash sed -n '51,100p' reproduce_issue.py (for lines 51-100), or bash sed -n '101,150p' reproduce_issue.py (for lines 101-150), etc.
+3. success to run `bash(python reproduce_issue.py)`
+File "/sandbox/repo/reproduce_issue.py", line 61
+    print(f'Test result (True means bug reproduced): {result})
+          ^
+SyntaxError: unterminated f-string literal (detected at line 61)
+[FIX_TASK] 10/250 | 254.1s/1300.0s | $0.2632/$2.5000
+   ├── 🛅 Input token size: 44032 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=20)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 15s/50s | Total: 15s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 3 function tools
+1. success to run `bash(rm reproduce_issue.py)`
+No output
+2. success to run `create_file(reproduce_issue.py, import os
+import sys
+import django
+from django.conf import settings
+from django.db import models
+from django.test import TestCase
+from django.core.exceptions import ValidationError
+# Add the project root to the path
+sys.path.insert(0, '/sandbox/repo')
+# Configure Django settings
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'django.conf.global_settings')
+django.setup()
+# Define models as described in the issue
+class ArticleManager(models.Manager):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.filter(archived=False)
+class Article(models.Model):
+    title = models.CharField(max_length=100)
+    archived = models.BooleanField(default=False)
+    # Don't include archived articles by default.
+    objects = ArticleManager()
+    
+    class Meta:
+        app_label = 'test'
+class FavoriteArticle(models.Model):
+    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    
+    class Meta:
+        app_label = 'test'
+# Test the issue
+def test_foreign_key_validation_with_custom_manager():
+    print('Testing ForeignKey validation with custom manager...')
+    
+    # Create an archived article (this should exist in DB but be filtered by default manager)
+    archived_article = Article(title='Archived Article', archived=True)
+    archived_article.save()
+    
+    print(f'Created archived article with ID: {archived_article.id}')
+    
+    # Try to validate a FavoriteArticle with the archived article
+    favorite = FavoriteArticle(article=archived_article)
+    
+    try:
+        # This should fail with the current implementation
+        favorite.full_clean()
+        print('Validation passed - this is unexpected with the bug present')
+        return False
+    except ValidationError as e:
+        print(f'Validation failed as expected: {e}')
+        return True
+if __name__ == '__main__':
+    result = test_foreign_key_validation_with_custom_manager()
+    print(f'Test result (True means bug reproduced): {result}')
+)`
+File created successfully at: reproduce_issue.py
+3. success to run `bash(python reproduce_issue.py)`
+Traceback (most recent call last):
+  File "/sandbox/repo/reproduce_issue.py", line 14, in <module>
+    django.setup()
+    ~~~~~~~~~~~~^^
+  File "/sandbox/repo/django/__init__.py", line 19, in setup
+    configure_logging(settings.LOGGING_CONFIG, settings.LOGGING)
+                      ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/sandbox/repo/django/conf/__init__.py", line 77, in __getattr__
+    self._setup(name)
+    ~~~~~~~~~~~^^^^^^
+  File "/sandbox/repo/django/conf/__init__.py", line 64, in _setup
+    self._wrapped = Settings(settings_module)
+                    ~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/sandbox/repo/django/conf/__init__.py", line 190, in __init__
+    raise ImproperlyConfigured("The SECRET_KEY setting must not be empty.")
+django.core.exceptions.ImproperlyConfigured: The SECRET_KEY setting must not be empty.
+[FIX_TASK] 11/250 | 269.9s/1300.0s | $0.2990/$2.5000
+   ├── 🛅 Input token size: 46224 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=22)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 12s/50s | Total: 12s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 2 function tools
+1. success to run `str_replace_in_file(reproduce_issue.py, import os
+import sys
+import django
+from django.conf import settings
+from django.db import models
+from django.test import TestCase
+from django.core.exceptions import ValidationError
+# Add the project root to the path
+sys.path.insert(0, '/sandbox/repo')
+# Configure Django settings
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'django.conf.global_settings')
+django.setup(), import os
+import sys
+import django
+from django.conf import settings
+from django.db import models
+from django.test import TestCase
+from django.core.exceptions import ValidationError
+# Add the project root to the path
+sys.path.insert(0, '/sandbox/repo')
+# Configure Django settings
+import django
+from django.conf import settings
+django.conf.settings.configure(
+    DEBUG=True,
+    SECRET_KEY='fake-key-for-testing',
+    USE_TZ=True,
+    INSTALLED_APPS=[
+        'django.contrib.contenttypes',
+        'django.contrib.auth',
+    ],
+    DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
+)
+django.setup())`
+File reproduce_issue.py edited successfully.
+Changes (showing 5 lines before and after):
+   1| - import os
+   2| - import sys
+   3| - import django
+   4| - from django.conf import settings
+   5| - from django.db import models
+   6| - from django.test import TestCase
+   7| - from django.core.exceptions import ValidationError
+   8| - 
+   9| - # Add the project root to the path
+  10| - sys.path.insert(0, '/sandbox/repo')
+  11| - 
+  12| - # Configure Django settings
+  13| - os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'django.conf.global_settings')
+  14| - django.setup()
+   1| + import os
+   2| + import sys
+   3| + import django
+   4| + from django.conf import settings
+   5| + from django.db import models
+   6| + from django.test import TestCase
+   7| + from django.core.exceptions import ValidationError
+   8| + 
+   9| + # Add the project root to the path
+  10| + sys.path.insert(0, '/sandbox/repo')
+  11| + 
+  12| + # Configure Django settings
+  13| + import django
+  14| + from django.conf import settings
+  15| + 
+  16| + django.conf.settings.configure(
+  17| +     DEBUG=True,
+  18| +     SECRET_KEY='fake-key-for-testing',
+  19| +     USE_TZ=True,
+  20| +     INSTALLED_APPS=[
+  21| +         'django.contrib.contenttypes',
+  22| +         'django.contrib.auth',
+  23| +     ],
+  24| +     DATABASES={
+  25| +         'default': {
+  26| +             'ENGINE': 'django.db.backends.sqlite3',
+  27| +             'NAME': ':memory:',
+  28| +         }
+  29| +     }
+  30| + )
+  31| + django.setup()
+  32|   
+  33|   # Define models as described in the issue
+  34|   class ArticleManager(models.Manager):
+  35|       def get_queryset(self):
+  36|           qs = super().get_queryset()
+Review and edit again if needed.
+2. success to run `bash(python reproduce_issue.py)`
+Testing ForeignKey validation with custom manager...
+Traceback (most recent call last):
+  File "/sandbox/repo/django/db/backends/utils.py", line 84, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/sandbox/repo/django/db/backends/sqlite3/base.py", line 415, in execute
+    return Database.Cursor.execute(self, query, params)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such table: test_article
+The above exception was the direct cause of the following exception:
+Traceback (most recent call last):
+  File "/sandbox/repo/reproduce_issue.py", line 77, in <module>
+    result = test_foreign_key_validation_with_custom_manager()
+  File "/sandbox/repo/reproduce_issue.py", line 60, in test_foreign_key_validation_with_custom_manager
+    archived_article.save()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "/sandbox/repo/django/db/models/base.py", line 750, in save
+    self.save_base(using=using, force_insert=force_insert,
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                   force_update=force_update, update_fields=update_fields)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/sandbox/repo/django/db/models/base.py", line 787, in save_base
+    updated = self._save_table(
+        raw, cls, force_insert or parent_inserted,
+        force_update, using, update_fields,
+    )
+  File "/sandbox/repo/django/db/models/base.py", line 892, in _save_table
+    results = self._do_insert(cls._base_manager, using, fields, returning_fields, raw)
+  File "/sandbox/repo/django/db/models/base.py", line 930, in _do_insert
+    return manager._insert(
+           ~~~~~~~~~~~~~~~^
+        [self], fields=fields, returning_fields=returning_fields,
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        using=using, raw=raw,
+        ^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "/sandbox/repo/django/db/models/manager.py", line 85, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "/sandbox/repo/django/db/models/query.py", line 1251, in _insert
+    return query.get_compiler(using=using).execute_sql(returning_fields)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^
+  File "/sandbox/repo/django/db/models/sql/compiler.py", line 1402, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/sandbox/repo/django/db/backends/utils.py", line 98, in execute
+    return super().execute(sql, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/sandbox/repo/django/db/backends/utils.py", line 66, in execute
+    return self._execute_with_wrappers(sql, params, many=False, executor=self._execute)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/sandbox/repo/django/db/backends/utils.py", line 75, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "/sandbox/repo/django/db/backends/utils.py", line 79, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/sandbox/repo/django/db/utils.py", line 90, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "/sandbox/repo/django/db/backends/utils.py", line 84, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "/sandbox/repo/django/db/backends/sqlite3/base.py", line 415, in execute
+    return Database.Cursor.execute(self, query, params)
+           ~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: no such table: test_article
+[FIX_TASK] 12/250 | 283.2s/1300.0s | $0.3359/$2.5000
+   ├── 🛅 Input token size: 49807 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=24)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 13s/50s | Total: 13s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 2 function tools
+1. success to run `str_replace_in_file(reproduce_issue.py, # Configure Django settings
+import django
+from django.conf import settings
+django.conf.settings.configure(
+    DEBUG=True,
+    SECRET_KEY='fake-key-for-testing',
+    USE_TZ=True,
+    INSTALLED_APPS=[
+        'django.contrib.contenttypes',
+        'django.contrib.auth',
+    ],
+    DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
+)
+django.setup(), # Configure Django settings
+import django
+from django.conf import settings
+from django.db import connection
+django.conf.settings.configure(
+    DEBUG=True,
+    SECRET_KEY='fake-key-for-testing',
+    USE_TZ=True,
+    INSTALLED_APPS=[
+        'django.contrib.contenttypes',
+        'django.contrib.auth',
+    ],
+    DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
+)
+django.setup()
+# Create tables for our test models
+from django.db import connection
+def create_test_tables():
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(Article)
+        schema_editor.create_model(FavoriteArticle)
+create_test_tables())`
+File reproduce_issue.py edited successfully.
+Changes (showing 5 lines before and after):
+   7|   from django.core.exceptions import ValidationError
+   8|   
+   9|   # Add the project root to the path
+  10|   sys.path.insert(0, '/sandbox/repo')
+  11|   
+  12| - # Configure Django settings
+  13| - import django
+  14| - from django.conf import settings
+  15| - 
+  16| - django.conf.settings.configure(
+  17| -     DEBUG=True,
+  18| -     SECRET_KEY='fake-key-for-testing',
+  19| -     USE_TZ=True,
+  20| -     INSTALLED_APPS=[
+  21| -         'django.contrib.contenttypes',
+  22| -         'django.contrib.auth',
+  23| -     ],
+  24| -     DATABASES={
+  25| -         'default': {
+  26| -             'ENGINE': 'django.db.backends.sqlite3',
+  27| -             'NAME': ':memory:',
+  28| -         }
+  29| -     }
+  30| - )
+  31| - django.setup()
+  12| + # Configure Django settings
+  13| + import django
+  14| + from django.conf import settings
+  15| + from django.db import connection
+  16| + 
+  17| + django.conf.settings.configure(
+  18| +     DEBUG=True,
+  19| +     SECRET_KEY='fake-key-for-testing',
+  20| +     USE_TZ=True,
+  21| +     INSTALLED_APPS=[
+  22| +         'django.contrib.contenttypes',
+  23| +         'django.contrib.auth',
+  24| +     ],
+  25| +     DATABASES={
+  26| +         'default': {
+  27| +             'ENGINE': 'django.db.backends.sqlite3',
+  28| +             'NAME': ':memory:',
+  29| +         }
+  30| +     }
+  31| + )
+  32| + django.setup()
+  33| + 
+  34| + # Create tables for our test models
+  35| + from django.db import connection
+  36| + 
+  37| + def create_test_tables():
+  38| +     with connection.schema_editor() as schema_editor:
+  39| +         schema_editor.create_model(Article)
+  40| +         schema_editor.create_model(FavoriteArticle)
+  41| + 
+  42| + create_test_tables()
+  43|   
+  44|   # Define models as described in the issue
+  45|   class ArticleManager(models.Manager):
+  46|       def get_queryset(self):
+  47|           qs = super().get_queryset()
+Review and edit again if needed.
+2. success to run `bash(python reproduce_issue.py)`
+Traceback (most recent call last):
+  File "/sandbox/repo/reproduce_issue.py", line 42, in <module>
+    create_test_tables()
+    ~~~~~~~~~~~~~~~~~~^^
+  File "/sandbox/repo/reproduce_issue.py", line 39, in create_test_tables
+    schema_editor.create_model(Article)
+                               ^^^^^^^
+NameError: name 'Article' is not defined
+[FIX_TASK] 13/250 | 297.1s/1300.0s | $0.3756/$2.5000
+   ├── 🛅 Input token size: 51864 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=26)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 17s/50s | Total: 17s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 3 function tools
+1. success to run `str_replace_in_file(reproduce_issue.py, django.setup()
+# Create tables for our test models
+from django.db import connection
+def create_test_tables():
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(Article)
+        schema_editor.create_model(FavoriteArticle)
+create_test_tables(), django.setup())`
+File reproduce_issue.py edited successfully.
+Changes (showing 5 lines before and after):
+  27|               'ENGINE': 'django.db.backends.sqlite3',
+  28|               'NAME': ':memory:',
+  29|           }
+  30|       }
+  31|   )
+  32| - django.setup()
+  33| - 
+  34| - # Create tables for our test models
+  35| - from django.db import connection
+  36| - 
+  37| - def create_test_tables():
+  38| -     with connection.schema_editor() as schema_editor:
+  39| -         schema_editor.create_model(Article)
+  40| -         schema_editor.create_model(FavoriteArticle)
+  41| - 
+  42| - create_test_tables()
+  32| + django.setup()
+  33|   
+  34|   # Define models as described in the issue
+  35|   class ArticleManager(models.Manager):
+  36|       def get_queryset(self):
+  37|           qs = super().get_queryset()
+Review and edit again if needed.
+2. success to run `str_replace_in_file(reproduce_issue.py, # Test the issue
+def test_foreign_key_validation_with_custom_manager():
+    print('Testing ForeignKey validation with custom manager...')
+    
+    # Create an archived article (this should exist in DB but be filtered by default manager)
+    archived_article = Article(title='Archived Article', archived=True)
+    archived_article.save()
+    
+    print(f'Created archived article with ID: {archived_article.id}')
+    
+    # Try to validate a FavoriteArticle with the archived article
+    favorite = FavoriteArticle(article=archived_article)
+    
+    try:
+        # This should fail with the current implementation
+        favorite.full_clean()
+        print('Validation passed - this is unexpected with the bug present')
+        return False
+    except ValidationError as e:
+        print(f'Validation failed as expected: {e}')
+        return True
+if __name__ == '__main__':
+    result = test_foreign_key_validation_with_custom_manager()
+    print(f'Test result (True means bug reproduced): {result}'), # Create tables for our test models
+from django.db import connection
+def create_test_tables():
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(Article)
+        schema_editor.create_model(FavoriteArticle)
+create_test_tables()
+# Test the issue
+def test_foreign_key_validation_with_custom_manager():
+    print('Testing ForeignKey validation with custom manager...')
+    
+    # Create an archived article (this should exist in DB but be filtered by default manager)
+    archived_article = Article(title='Archived Article', archived=True)
+    archived_article.save()
+    
+    print(f'Created archived article with ID: {archived_article.id}')
+    
+    # Try to validate a FavoriteArticle with the archived article
+    favorite = FavoriteArticle(article=archived_article)
+    
+    try:
+        # This should fail with the current implementation
+        favorite.full_clean()
+        print('Validation passed - this is unexpected with the bug present')
+        return False
+    except ValidationError as e:
+        print(f'Validation failed as expected: {e}')
+        return True
+if __name__ == '__main__':
+    result = test_foreign_key_validation_with_custom_manager()
+    print(f'Test result (True means bug reproduced): {result}'))`
+File reproduce_issue.py edited successfully.
+Changes (showing 5 lines before and after):
+  50|       article = models.ForeignKey(Article, on_delete=models.CASCADE)
+  51|       
+  52|       class Meta:
+  53|           app_label = 'test'
+  54|   
+  55| - # Test the issue
+  56| - def test_foreign_key_validation_with_custom_manager():
+  57| -     print('Testing ForeignKey validation with custom manager...')
+  58| -     
+  59| -     # Create an archived article (this should exist in DB but be filtered by default manager)
+  60| -     archived_article = Article(title='Archived Article', archived=True)
+  61| -     archived_article.save()
+  62| -     
+  63| -     print(f'Created archived article with ID: {archived_article.id}')
+  64| -     
+  65| -     # Try to validate a FavoriteArticle with the archived article
+  66| -     favorite = FavoriteArticle(article=archived_article)
+  67| -     
+  68| -     try:
+  69| -         # This should fail with the current implementation
+  70| -         favorite.full_clean()
+  71| -         print('Validation passed - this is unexpected with the bug present')
+  72| -         return False
+  73| -     except ValidationError as e:
+  74| -         print(f'Validation failed as expected: {e}')
+  75| -         return True
+  76| - 
+  77| - if __name__ == '__main__':
+  78| -     result = test_foreign_key_validation_with_custom_manager()
+  79| -     print(f'Test result (True means bug reproduced): {result}')
+  55| + # Create tables for our test models
+  56| + from django.db import connection
+  57| + 
+  58| + def create_test_tables():
+  59| +     with connection.schema_editor() as schema_editor:
+  60| +         schema_editor.create_model(Article)
+  61| +         schema_editor.create_model(FavoriteArticle)
+  62| + 
+  63| + create_test_tables()
+  64| + 
+  65| + # Test the issue
+  66| + def test_foreign_key_validation_with_custom_manager():
+  67| +     print('Testing ForeignKey validation with custom manager...')
+  68| +     
+  69| +     # Create an archived article (this should exist in DB but be filtered by default manager)
+  70| +     archived_article = Article(title='Archived Article', archived=True)
+  71| +     archived_article.save()
+  72| +     
+  73| +     print(f'Created archived article with ID: {archived_article.id}')
+  74| +     
+  75| +     # Try to validate a FavoriteArticle with the archived article
+  76| +     favorite = FavoriteArticle(article=archived_article)
+  77| +     
+  78| +     try:
+  79| +         # This should fail with the current implementation
+  80| +         favorite.full_clean()
+  81| +         print('Validation passed - this is unexpected with the bug present')
+  82| +         return False
+  83| +     except ValidationError as e:
+  84| +         print(f'Validation failed as expected: {e}')
+  85| +         return True
+  86| + 
+  87| + if __name__ == '__main__':
+  88| +     result = test_foreign_key_validation_with_custom_manager()
+  89| +     print(f'Test result (True means bug reproduced): {result}')
+  90|   
+Review and edit again if needed.
+3. success to run `bash(python reproduce_issue.py)`
+Testing ForeignKey validation with custom manager...
+Created archived article with ID: 1
+Validation failed as expected: {'article': ['article instance with id 1 does not exist.']}
+Test result (True means bug reproduced): True
+[FIX_TASK] 14/250 | 315.5s/1300.0s | $0.4178/$2.5000
+   ├── 🛅 Input token size: 55589 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=28)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 44s/50s | Total: 44s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 3 function tools
+1. success to run `bash(sed -n '910,925p' django/db/models/fields/related.py)`
+if self.remote_field.parent_link:
+            return
+        super().validate(value, model_instance)
+        if value is None:
+            return
+        using = router.db_for_read(self.remote_field.model, instance=model_instance)
+        qs = self.remote_field.model._default_manager.using(using).filter(
+            **{self.remote_field.field_name: value}
+        )
+        qs = qs.complex_filter(self.get_limit_choices_to())
+        if not qs.exists():
+            raise exceptions.ValidationError(
+                self.error_messages['invalid'],
+                code='invalid',
+                params={
+2. success to run `str_replace_in_file(django/db/models/fields/related.py,         using = router.db_for_read(self.remote_field.model, instance=model_instance)
+        qs = self.remote_field.model._default_manager.using(using).filter(
+            **{self.remote_field.field_name: value}
+        )
+        qs = qs.complex_filter(self.get_limit_choices_to()),         using = router.db_for_read(self.remote_field.model, instance=model_instance)
+        qs = self.remote_field.model._base_manager.using(using).filter(
+            **{self.remote_field.field_name: value}
+        )
+        qs = qs.complex_filter(self.get_limit_choices_to()))`
+File django/db/models/fields/related.py edited successfully.
+Changes (showing 5 lines before and after):
+ 911|               return
+ 912|           super().validate(value, model_instance)
+ 913|           if value is None:
+ 914|               return
+ 915|   
+ 916| -         using = router.db_for_read(self.remote_field.model, instance=model_instance)
+ 917| -         qs = self.remote_field.model._default_manager.using(using).filter(
+ 918| -             **{self.remote_field.field_name: value}
+ 919| -         )
+ 920| -         qs = qs.complex_filter(self.get_limit_choices_to())
+ 916| +         using = router.db_for_read(self.remote_field.model, instance=model_instance)
+ 917| +         qs = self.remote_field.model._base_manager.using(using).filter(
+ 918| +             **{self.remote_field.field_name: value}
+ 919| +         )
+ 920| +         qs = qs.complex_filter(self.get_limit_choices_to())
+ 921|           if not qs.exists():
+ 922|               raise exceptions.ValidationError(
+ 923|                   self.error_messages['invalid'],
+ 924|                   code='invalid',
+ 925|                   params={
+Review and edit again if needed.
+3. success to run `bash(python reproduce_issue.py)`
+Testing ForeignKey validation with custom manager...
+Created archived article with ID: 1
+Validation passed - this is unexpected with the bug present
+Test result (True means bug reproduced): False
+[FIX_TASK] 15/250 | 360.2s/1300.0s | $0.4623/$2.5000
+   ├── 🛅 Input token size: 57116 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=30)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ❌ Request timeout after 50s for model Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Attempt: 1/5 | Timeout: 50s/50s | Total: 50s
+   ├── 💤 Sleeping 1s before retrying with same model...
+   ├── 🔂 Starting Request | Attempt: 2/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 2/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 13s/50s | Total: 64s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 4 function tools
+1. success to run `bash(find . -path '*/tests/*' -name '*.py' -exec grep -l 'ForeignKey.*validate\|validate.*ForeignKey' {} \;)`
+./tests/many_to_one/tests.py
+./tests/multiple_database/tests.py
+2. success to run `bash(python -m django test tests.model_fields.test_foreignkey)`
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/sandbox/repo/django/__main__.py", line 9, in <module>
+    management.execute_from_command_line()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/sandbox/repo/django/core/management/__init__.py", line 401, in execute_from_command_line
+    utility.execute()
+    ~~~~~~~~~~~~~~~^^
+  File "/sandbox/repo/django/core/management/__init__.py", line 395, in execute
+    self.fetch_command(subcommand).run_from_argv(self.argv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/sandbox/repo/django/core/management/commands/test.py", line 23, in run_from_argv
+    super().run_from_argv(argv)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/sandbox/repo/django/core/management/base.py", line 342, in run_from_argv
+    parser = self.create_parser(argv[0], argv[1])
+  File "/sandbox/repo/django/core/management/base.py", line 316, in create_parser
+    self.add_arguments(parser)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/sandbox/repo/django/core/management/commands/test.py", line 44, in add_arguments
+    test_runner_class = get_runner(settings, self.test_runner)
+  File "/sandbox/repo/django/test/utils.py", line 302, in get_runner
+    test_runner_class = test_runner_class or settings.TEST_RUNNER
+                                             ^^^^^^^^^^^^^^^^^^^^
+  File "/sandbox/repo/django/conf/__init__.py", line 77, in __getattr__
+    self._setup(name)
+    ~~~~~~~~~~~^^^^^^
+  File "/sandbox/repo/django/conf/__init__.py", line 58, in _setup
+    raise ImproperlyConfigured(
+    ...<3 lines>...
+        % (desc, ENVIRONMENT_VARIABLE))
+django.core.exceptions.ImproperlyConfigured: Requested setting TEST_RUNNER, but settings are not configured. You must either define the environment variable DJANGO_SETTINGS_MODULE or call settings.configure() before accessing settings.
+3. success to run `bash(python -m django test tests.many_to_one.tests)`
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/sandbox/repo/django/__main__.py", line 9, in <module>
+    management.execute_from_command_line()
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "/sandbox/repo/django/core/management/__init__.py", line 401, in execute_from_command_line
+    utility.execute()
+    ~~~~~~~~~~~~~~~^^
+  File "/sandbox/repo/django/core/management/__init__.py", line 395, in execute
+    self.fetch_command(subcommand).run_from_argv(self.argv)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/sandbox/repo/django/core/management/commands/test.py", line 23, in run_from_argv
+    super().run_from_argv(argv)
+    ~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "/sandbox/repo/django/core/management/base.py", line 342, in run_from_argv
+    parser = self.create_parser(argv[0], argv[1])
+  File "/sandbox/repo/django/core/management/base.py", line 316, in create_parser
+    self.add_arguments(parser)
+    ~~~~~~~~~~~~~~~~~~^^^^^^^^
+  File "/sandbox/repo/django/core/management/commands/test.py", line 44, in add_arguments
+    test_runner_class = get_runner(settings, self.test_runner)
+  File "/sandbox/repo/django/test/utils.py", line 302, in get_runner
+    test_runner_class = test_runner_class or settings.TEST_RUNNER
+                                             ^^^^^^^^^^^^^^^^^^^^
+  File "/sandbox/repo/django/conf/__init__.py", line 77, in __getattr__
+    self._setup(name)
+    ~~~~~~~~~~~^^^^^^
+  File "/sandbox/repo/django/conf/__init__.py", line 58, in _setup
+    raise ImproperlyConfigured(
+    ...<3 lines>...
+        % (desc, ENVIRONMENT_VARIABLE))
+django.core.exceptions.ImproperlyConfigured: Requested setting TEST_RUNNER, but settings are not configured. You must either define the environment variable DJANGO_SETTINGS_MODULE or call settings.configure() before accessing settings.
+4. success to run `bash(grep -rn 'validate.*ForeignKey\|ForeignKey.*validate' tests/ | head -10)`
+tests/many_to_one/tests.py:717:        Model.save() invalidates stale ForeignKey relations after a primary key
+tests/multiple_database/tests.py:601:        "ForeignKey.validate() uses the correct database"
+tests/multiple_database/tests.py:610:        ForeignKey.validate() passes `model` to db_for_read() even if
+[FIX_TASK] 16/250 | 427.6s/1300.0s | $0.5078/$2.5000
+   ├── 🛅 Input token size: 59656 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=32)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 17s/50s | Total: 17s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 5 function tools
+1. success to run `bash(grep -A 10 -B 5 'ForeignKey.validate.*database\|validate.*ForeignKey.*database' tests/multiple_database/tests.py)`
+# Both the pet and the person have been deleted from the right database
+        self.assertEqual(Person.objects.using('other').count(), 0)
+        self.assertEqual(Pet.objects.using('other').count(), 0)
+    def test_foreign_key_validation(self):
+        "ForeignKey.validate() uses the correct database"
+        mickey = Person.objects.using('other').create(name="Mickey")
+        pluto = Pet.objects.using('other').create(name="Pluto", owner=mickey)
+        self.assertIsNone(pluto.full_clean())
+    # Any router that accesses `model` in db_for_read() works here.
+    @override_settings(DATABASE_ROUTERS=[AuthRouter()])
+    def test_foreign_key_validation_with_router(self):
+        """
+        ForeignKey.validate() passes `model` to db_for_read() even if
+        model_instance=None.
+2. success to run `bash(head -300 tests/multiple_database/tests.py)`
+import datetime
+import pickle
+from io import StringIO
+from operator import attrgetter
+from unittest.mock import Mock
+from django.contrib.auth.models import User
+from django.contrib.contenttypes.models import ContentType
+from django.core import management
+from django.db import DEFAULT_DB_ALIAS, router, transaction
+from django.db.models import signals
+from django.db.utils import ConnectionRouter
+from django.test import SimpleTestCase, TestCase, override_settings
+from .models import Book, Person, Pet, Review, UserProfile
+from .routers import AuthRouter, TestRouter, WriteRouter
+class QueryTestCase(TestCase):
+    databases = {'default', 'other'}
+    def test_db_selection(self):
+        "Querysets will use the default database by default"
+        self.assertEqual(Book.objects.db, DEFAULT_DB_ALIAS)
+        self.assertEqual(Book.objects.all().db, DEFAULT_DB_ALIAS)
+        self.assertEqual(Book.objects.using('other').db, 'other')
+        self.assertEqual(Book.objects.db_manager('other').db, 'other')
+        self.assertEqual(Book.objects.db_manager('other').all().db, 'other')
+    def test_default_creation(self):
+        "Objects created on the default database don't leak onto other databases"
+        # Create a book on the default database using create()
+        Book.objects.create(title="Pro Django", published=datetime.date(2008, 12, 16))
+        # Create a book on the default database using a save
+        dive = Book()
+        dive.title = "Dive into Python"
+        dive.published = datetime.date(2009, 5, 4)
+        dive.save()
+        # Book exists on the default database, but not on other database
+        try:
+            Book.objects.get(title="Pro Django")
+            Book.objects.using('default').get(title="Pro Django")
+        except Book.DoesNotExist:
+            self.fail('"Pro Django" should exist on default database')
+        with self.assertRaises(Book.DoesNotExist):
+            Book.objects.using('other').get(title="Pro Django")
+        try:
+            Book.objects.get(title="Dive into Python")
+            Book.objects.using('default').get(title="Dive into Python")
+        except Book.DoesNotExist:
+            self.fail('"Dive into Python" should exist on default database')
+        with self.assertRaises(Book.DoesNotExist):
+            Book.objects.using('other').get(title="Dive into Python")
+    def test_other_creation(self):
+        "Objects created on another database don't leak onto the default database"
+        # Create a book on the second database
+        Book.objects.using('other').create(title="Pro Django",
+                                           published=datetime.date(2008, 12, 16))
+        # Create a book on the default database using a save
+        dive = Book()
+        dive.title = "Dive into Python"
+        dive.published = datetime.date(2009, 5, 4)
+        dive.save(using='other')
+        # Book exists on the default database, but not on other database
+        try:
+            Book.objects.using('other').get(title="Pro Django")
+        except Book.DoesNotExist:
+            self.fail('"Pro Django" should exist on other database')
+        with self.assertRaises(Book.DoesNotExist):
+            Book.objects.get(title="Pro Django")
+        with self.assertRaises(Book.DoesNotExist):
+            Book.objects.using('default').get(title="Pro Django")
+        try:
+            Book.objects.using('other').get(title="Dive into Python")
+        except Book.DoesNotExist:
+            self.fail('"Dive into Python" should exist on other database')
+        with self.assertRaises(Book.DoesNotExist):
+            Book.objects.get(title="Dive into Python")
+        with self.assertRaises(Book.DoesNotExist):
+            Book.objects.using('default').get(title="Dive into Python")
+    def test_refresh(self):
+        dive = Book(title="Dive into Python", published=datetime.date(2009, 5, 4))
+        dive.save(using='other')
+        dive2 = Book.objects.using('other').get()
+        dive2.title = "Dive into Python (on default)"
+        dive2.save(using='default')
+        dive.refresh_from_db()
+        self.assertEqual(dive.title, "Dive into Python")
+        dive.refresh_from_db(using='default')
+        self.assertEqual(dive.title, "Dive into Python (on default)")
+        self.assertEqual(dive._state.db, "default")
+    def test_refresh_router_instance_hint(self):
+        router = Mock()
+        router.db_for_read.return_value = None
+        book = Book.objects.create(title='Dive Into Python', published=datetime.date(1957, 10, 12))
+        with self.settings(DATABASE_ROUTERS=[router]):
+            book.refresh_from_db()
+        router.db_for_read.assert_called_once_with(Book, instance=book)
+    def test_basic_queries(self):
+        "Queries are constrained to a single database"
+        dive = Book.objects.using('other').create(title="Dive into Python", published=datetime.date(2009, 5, 4))
+        dive = Book.objects.using('other').get(published=datetime.date(2009, 5, 4))
+        self.assertEqual(dive.title, "Dive into Python")
+        with self.assertRaises(Book.DoesNotExist):
+            Book.objects.using('default').get(published=datetime.date(2009, 5, 4))
+        dive = Book.objects.using('other').get(title__icontains="dive")
+        self.assertEqual(dive.title, "Dive into Python")
+        with self.assertRaises(Book.DoesNotExist):
+            Book.objects.using('default').get(title__icontains="dive")
+        dive = Book.objects.using('other').get(title__iexact="dive INTO python")
+        self.assertEqual(dive.title, "Dive into Python")
+        with self.assertRaises(Book.DoesNotExist):
+            Book.objects.using('default').get(title__iexact="dive INTO python")
+        dive = Book.objects.using('other').get(published__year=2009)
+        self.assertEqual(dive.title, "Dive into Python")
+        self.assertEqual(dive.published, datetime.date(2009, 5, 4))
+        with self.assertRaises(Book.DoesNotExist):
+            Book.objects.using('default').get(published__year=2009)
+        years = Book.objects.using('other').dates('published', 'year')
+        self.assertEqual([o.year for o in years], [2009])
+        years = Book.objects.using('default').dates('published', 'year')
+        self.assertEqual([o.year for o in years], [])
+        months = Book.objects.using('other').dates('published', 'month')
+        self.assertEqual([o.month for o in months], [5])
+        months = Book.objects.using('default').dates('published', 'month')
+        self.assertEqual([o.month for o in months], [])
+    def test_m2m_separation(self):
+        "M2M fields are constrained to a single database"
+        # Create a book and author on the default database
+        pro = Book.objects.create(title="Pro Django",
+                                  published=datetime.date(2008, 12, 16))
+        marty = Person.objects.create(name="Marty Alchin")
+        # Create a book and author on the other database
+        dive = Book.objects.using('other').create(title="Dive into Python", published=datetime.date(2009, 5, 4))
+        mark = Person.objects.using('other').create(name="Mark Pilgrim")
+        # Save the author relations
+        pro.authors.set([marty])
+        dive.authors.set([mark])
+        # Inspect the m2m tables directly.
+        # There should be 1 entry in each database
+        self.assertEqual(Book.authors.through.objects.using('default').count(), 1)
+        self.assertEqual(Book.authors.through.objects.using('other').count(), 1)
+        # Queries work across m2m joins
+        self.assertEqual(
+            list(Book.objects.using('default').filter(authors__name='Marty Alchin').values_list('title', flat=True)),
+            ['Pro Django']
+        )
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='Marty Alchin').values_list('title', flat=True)),
+            []
+        )
+        self.assertEqual(
+            list(Book.objects.using('default').filter(authors__name='Mark Pilgrim').values_list('title', flat=True)),
+            []
+        )
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='Mark Pilgrim').values_list('title', flat=True)),
+            ['Dive into Python']
+        )
+        # Reget the objects to clear caches
+        dive = Book.objects.using('other').get(title="Dive into Python")
+        mark = Person.objects.using('other').get(name="Mark Pilgrim")
+        # Retrieve related object by descriptor. Related objects should be database-bound
+        self.assertEqual(list(dive.authors.all().values_list('name', flat=True)), ['Mark Pilgrim'])
+        self.assertEqual(list(mark.book_set.all().values_list('title', flat=True)), ['Dive into Python'])
+    def test_m2m_forward_operations(self):
+        "M2M forward manipulations are all constrained to a single DB"
+        # Create a book and author on the other database
+        dive = Book.objects.using('other').create(title="Dive into Python", published=datetime.date(2009, 5, 4))
+        mark = Person.objects.using('other').create(name="Mark Pilgrim")
+        # Save the author relations
+        dive.authors.set([mark])
+        # Add a second author
+        john = Person.objects.using('other').create(name="John Smith")
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='John Smith').values_list('title', flat=True)),
+            []
+        )
+        dive.authors.add(john)
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='Mark Pilgrim').values_list('title', flat=True)),
+            ['Dive into Python']
+        )
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='John Smith').values_list('title', flat=True)),
+            ['Dive into Python']
+        )
+        # Remove the second author
+        dive.authors.remove(john)
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='Mark Pilgrim').values_list('title', flat=True)),
+            ['Dive into Python']
+        )
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='John Smith').values_list('title', flat=True)),
+            []
+        )
+        # Clear all authors
+        dive.authors.clear()
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='Mark Pilgrim').values_list('title', flat=True)),
+            []
+        )
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='John Smith').values_list('title', flat=True)),
+            []
+        )
+        # Create an author through the m2m interface
+        dive.authors.create(name='Jane Brown')
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='Mark Pilgrim').values_list('title', flat=True)),
+            []
+        )
+        self.assertEqual(
+            list(Book.objects.using('other').filter(authors__name='Jane Brown').values_list('title', flat=True)),
+            ['Dive into Python']
+        )
+    def test_m2m_reverse_operations(self):
+        "M2M reverse manipulations are all constrained to a single DB"
+        # Create a book and author on the other database
+        dive = Book.objects.using('other').create(title="Dive into Python", published=datetime.date(2009, 5, 4))
+        mark = Person.objects.using('other').create(name="Mark Pilgrim")
+        # Save the author relations
+        dive.authors.set([mark])
+        # Create a second book on the other database
+        grease = Book.objects.using('other').create(title="Greasemonkey Hacks", published=datetime.date(2005, 11, 1))
+        # Add a books to the m2m
+        mark.book_set.add(grease)
+        self.assertEqual(
+            list(Person.objects.using('other').filter(book__title='Dive into Python').values_list('name', flat=True)),
+            ['Mark Pilgrim']
+        )
+        self.assertEqual(
+            list(
+                Person.objects.using('other').filter(book__title='Greasemonkey Hacks').values_list('name', flat=True)
+            ),
+            ['Mark Pilgrim']
+        )
+        # Remove a book from the m2m
+        mark.book_set.remove(grease)
+        self.assertEqual(
+            list(Person.objects.using('other').filter(book__title='Dive into Python').values_list('name', flat=True)),
+            ['Mark Pilgrim']
+        )
+        self.assertEqual(
+            list(
+                Person.objects.using('other').filter(book__title='Greasemonkey Hacks').values_list('name', flat=True)
+            ),
+            []
+        )
+        # Clear the books associated with mark
+        mark.book_set.clear()
+        self.assertEqual(
+            list(Person.objects.using('other').filter(book__title='Dive into Python').values_list('name', flat=True)),
+3. success to run `bash(sed -n '600,620p' tests/multiple_database/tests.py)`
+def test_foreign_key_validation(self):
+        "ForeignKey.validate() uses the correct database"
+        mickey = Person.objects.using('other').create(name="Mickey")
+        pluto = Pet.objects.using('other').create(name="Pluto", owner=mickey)
+        self.assertIsNone(pluto.full_clean())
+    # Any router that accesses `model` in db_for_read() works here.
+    @override_settings(DATABASE_ROUTERS=[AuthRouter()])
+    def test_foreign_key_validation_with_router(self):
+        """
+        ForeignKey.validate() passes `model` to db_for_read() even if
+        model_instance=None.
+        """
+        mickey = Person.objects.create(name="Mickey")
+        owner_field = Pet._meta.get_field('owner')
+        self.assertEqual(owner_field.clean(mickey.pk, None), mickey.pk)
+    def test_o2o_separation(self):
+        "OneToOne fields are constrained to a single database"
+        # Create a user and profile on the default database
+        alice = User.objects.db_manager('default').create_user('alice', 'alice@example.com')
+4. success to run `create_file(test_fix_validation.py, import os
+import sys
+import django
+from django.conf import settings
+from django.db import models
+from django.test import TestCase
+from django.core.exceptions import ValidationError
+# Add the project root to the path
+sys.path.insert(0, '/sandbox/repo')
+# Configure Django settings
+import django
+from django.conf import settings
+django.conf.settings.configure(
+    DEBUG=True,
+    SECRET_KEY='fake-key-for-testing',
+    USE_TZ=True,
+    INSTALLED_APPS=[
+        'django.contrib.contenttypes',
+        'django.contrib.auth',
+    ],
+    DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
+)
+django.setup()
+# Test models from the multiple_database tests
+from django.db import connection
+class Reviewer(models.Model):
+    name = models.CharField(max_length=255)
+    
+    class Meta:
+        app_label = 'test'
+class Book(models.Model):
+    title = models.CharField(max_length=255)
+    reviewer = models.ForeignKey(Reviewer, models.CASCADE)
+    
+    class Meta:
+        app_label = 'test'
+def create_test_tables():
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(Reviewer)
+        schema_editor.create_model(Book)
+create_test_tables()
+def test_foreign_key_validation_with_base_manager():
+    print('Testing ForeignKey validation with base manager...')
+    
+    # Create a reviewer
+    reviewer = Reviewer(name='Test Reviewer')
+    reviewer.save()
+    
+    print(f'Created reviewer with ID: {reviewer.id}')
+    
+    # Try to validate a Book with the reviewer
+    book = Book(title='Test Book', reviewer=reviewer)
+    
+    try:
+        # This should pass with our fix
+        book.full_clean()
+        book.save()
+        print('Validation passed - this is expected')
+        return True
+    except ValidationError as e:
+        print(f'Validation failed unexpectedly: {e}')
+        return False
+if __name__ == '__main__':
+    result = test_foreign_key_validation_with_base_manager()
+    print(f'Test result (True means validation works correctly): {result}')
+)`
+File created successfully at: test_fix_validation.py
+5. success to run `bash(python test_fix_validation.py)`
+Testing ForeignKey validation with base manager...
+Created reviewer with ID: 1
+Validation passed - this is expected
+Test result (True means validation works correctly): True
+[FIX_TASK] 17/250 | 445.4s/1300.0s | $0.5562/$2.5000
+   ├── 🛅 Input token size: 61841 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=34)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ❌ Request timeout after 50s for model Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Attempt: 1/5 | Timeout: 50s/50s | Total: 50s
+   ├── 💤 Sleeping 1s before retrying with same model...
+   ├── 🔂 Starting Request | Attempt: 2/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 2/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 43s/50s | Total: 94s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 5 function tools
+1. success to run `bash(python reproduce_issue.py)`
+Testing ForeignKey validation with custom manager...
+Created archived article with ID: 1
+Validation passed - this is unexpected with the bug present
+Test result (True means bug reproduced): False
+2. success to run `bash(python test_fix_validation.py)`
+Testing ForeignKey validation with base manager...
+Created reviewer with ID: 1
+Validation passed - this is expected
+Test result (True means validation works correctly): True
+3. success to run `create_file(comprehensive_test.py, import os
+import sys
+import django
+from django.conf import settings
+from django.db import models
+from django.test import TestCase
+from django.core.exceptions import ValidationError
+# Add the project root to the path
+sys.path.insert(0, '/sandbox/repo')
+# Configure Django settings
+import django
+from django.conf import settings
+django.conf.settings.configure(
+    DEBUG=True,
+    SECRET_KEY='fake-key-for-testing',
+    USE_TZ=True,
+    INSTALLED_APPS=[
+        'django.contrib.contenttypes',
+        'django.contrib.auth',
+    ],
+    DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
+)
+django.setup()
+# Define models as described in the issue
+class ArticleManager(models.Manager):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.filter(archived=False)
+class Article(models.Model):
+    title = models.CharField(max_length=100)
+    archived = models.BooleanField(default=False)
+    # Don't include archived articles by default.
+    objects = ArticleManager()
+    
+    class Meta:
+        app_label = 'test'
+class FavoriteArticle(models.Model):
+    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    
+    class Meta:
+        app_label = 'test'
+# Test models without custom managers
+class SimpleAuthor(models.Model):
+    name = models.CharField(max_length=100)
+    
+    class Meta:
+        app_label = 'test'
+class SimpleBook(models.Model):
+    title = models.CharField(max_length=100)
+    author = models.ForeignKey(SimpleAuthor, on_delete=models.CASCADE)
+    
+    class Meta:
+        app_label = 'test'
+# Create tables for our test models
+from django.db import connection
+def create_test_tables():
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(Article)
+        schema_editor.create_model(FavoriteArticle)
+        schema_editor.create_model(SimpleAuthor)
+        schema_editor.create_model(SimpleBook)
+create_test_tables()
+# Test the fix
+def test_comprehensive_foreign_key_validation():
+    print('=== Comprehensive ForeignKey validation test ===')
+    
+    # Test 1: Archived article (should now pass with our fix)
+    print('
+Test 1: Validating archived article (should pass with fix)')
+    archived_article = Article(title='Archived Article', archived=True)
+    archived_article.save()
+    
+    favorite = FavoriteArticle(article=archived_article)
+    
+    try:
+        favorite.full_clean()
+        favorite.save()
+        print('✓ Validation passed for archived article - fix is working!')
+        test1_result = True
+    except ValidationError as e:
+        print(f'✗ Validation failed for archived article: {e}')
+        test1_result = False
+    
+    # Test 2: Non-archived article (should always pass)
+    print('
+Test 2: Validating non-archived article (should always pass)')
+    active_article = Article(title='Active Article', archived=False)
+    active_article.save()
+    
+    favorite2 = FavoriteArticle(article=active_article)
+    
+    try:
+        favorite2.full_clean()
+        favorite2.save()
+        print('✓ Validation passed for non-archived article')
+        test2_result = True
+    except ValidationError as e:
+        print(f'✗ Validation failed for non-archived article: {e}')
+        test2_result = False
+    
+    # Test 3: Non-existent article (should always fail)
+    print('
+Test 3: Validating non-existent article (should always fail)')
+    favorite3 = FavoriteArticle(article_id=99999)  # Non-existent ID
+    
+    try:
+        favorite3.full_clean()
+        favorite3.save()
+        print('✗ Validation passed for non-existent article - this should not happen!')
+        test3_result = False
+    except ValidationError as e:
+        print(f'✓ Validation correctly failed for non-existent article: {e}')
+        test3_result = True
+    
+    # Test 4: Simple models without custom managers (should always pass)
+    print('
+Test 4: Validating simple models without custom managers')
+    author = SimpleAuthor(name='Test Author')
+    author.save()
+    
+    book = SimpleBook(title='Test Book', author=author)
+    
+    try:
+        book.full_clean()
+        book.save()
+        print('✓ Validation passed for simple models')
+        test4_result = True
+    except ValidationError as e:
+        print(f'✗ Validation failed for simple models: {e}')
+        test4_result = False
+    
+    # Overall result
+    all_tests_passed = test1_result and test2_result and test3_result and test4_result
+    print(f'
+=== Overall result: {"ALL TESTS PASSED" if all_tests_passed else "SOME TESTS FAILED"} ===')
+    return all_tests_passed
+if __name__ == '__main__':
+    result = test_comprehensive_foreign_key_validation()
+    print(f'
+Final result: {result}'))`
+File created successfully at: comprehensive_test.py
+4. success to run `bash(python comprehensive_test.py)`
+=== Comprehensive ForeignKey validation test ===
+Test 1: Validating archived article (should pass with fix)
+✓ Validation passed for archived article - fix is working!
+Test 2: Validating non-archived article (should always pass)
+✓ Validation passed for non-archived article
+Test 3: Validating non-existent article (should always fail)
+✓ Validation correctly failed for non-existent article: {'article': ['article instance with id 99999 does not exist.']}
+Test 4: Validating simple models without custom managers
+✓ Validation passed for simple models
+=== Overall result: ALL TESTS PASSED ===
+Final result: True
+5. success to run `bash(grep -A 5 -B 5 '_base_manager\|_default_manager' django/db/models/fields/related.py)`
+super().validate(value, model_instance)
+        if value is None:
+            return
+        using = router.db_for_read(self.remote_field.model, instance=model_instance)
+        qs = self.remote_field.model._base_manager.using(using).filter(
+            **{self.remote_field.field_name: value}
+        )
+        qs = qs.complex_filter(self.get_limit_choices_to())
+        if not qs.exists():
+            raise exceptions.ValidationError(
+--
+            raise ValueError("Cannot create form field for %r yet, because "
+                             "its related model %r has not been loaded yet" %
+                             (self.name, self.remote_field.model))
+        return super().formfield(**{
+            'form_class': forms.ModelChoiceField,
+            'queryset': self.remote_field.model._default_manager.using(using),
+            'to_field_name': self.remote_field.field_name,
+            **kwargs,
+            'blank': self.blank,
+        })
+--
+        getattr(instance, self.attname).set(data)
+    def formfield(self, *, using=None, **kwargs):
+        defaults = {
+            'form_class': forms.ModelMultipleChoiceField,
+            'queryset': self.remote_field.model._default_manager.using(using),
+            **kwargs,
+        }
+        # If initial is passed in, it's a list of related objects, but the
+        # MultipleChoiceField takes a list of IDs.
+        if defaults.get('initial') is not None:
+[FIX_TASK] 18/250 | 542.4s/1300.0s | $0.6528/$2.5000
+   ├── 🛅 Input token size: 65087 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=36)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 38s/50s | Total: 38s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 4 function tools
+1. success to run `bash(grep -n '_default_manager\|_base_manager' django/db/models/fields/related.py)`
+917:        qs = self.remote_field.model._base_manager.using(using).filter(
+987:            'queryset': self.remote_field.model._default_manager.using(using),
+1671:            'queryset': self.remote_field.model._default_manager.using(using),
+2. success to run `bash(grep -A 10 -B 5 'formfield' django/db/models/fields/related.py)`
+"""
+        if callable(self.remote_field.limit_choices_to):
+            return self.remote_field.limit_choices_to()
+        return self.remote_field.limit_choices_to
+    def formfield(self, **kwargs):
+        """
+        Pass ``limit_choices_to`` to the field being constructed.
+        Only passes it if there is a type that supports related fields.
+        This is a similar strategy used to pass the ``queryset`` to the field
+        being constructed.
+        """
+        defaults = {}
+        if hasattr(self.remote_field, 'get_related_field'):
+            # If this is a callable, do not invoke it here. Just pass
+--
+            limit_choices_to = self.remote_field.limit_choices_to
+            defaults.update({
+                'limit_choices_to': limit_choices_to,
+            })
+        defaults.update(kwargs)
+        return super().formfield(**defaults)
+    def related_query_name(self):
+        """
+        Define the name that can be used to identify this related object in a
+        table-spanning query.
+        """
+        return self.remote_field.related_query_name or self.remote_field.related_name or self.opts.model_name
+    @property
+    def target_field(self):
+--
+    def contribute_to_related_class(self, cls, related):
+        super().contribute_to_related_class(cls, related)
+        if self.remote_field.field_name is None:
+            self.remote_field.field_name = cls._meta.pk.name
+    def formfield(self, *, using=None, **kwargs):
+        if isinstance(self.remote_field.model, str):
+            raise ValueError("Cannot create form field for %r yet, because "
+                             "its related model %r has not been loaded yet" %
+                             (self.name, self.remote_field.model))
+        return super().formfield(**{
+            'form_class': forms.ModelChoiceField,
+            'queryset': self.remote_field.model._default_manager.using(using),
+            'to_field_name': self.remote_field.field_name,
+            **kwargs,
+            'blank': self.blank,
+        })
+    def db_check(self, connection):
+        return []
+--
+        name, path, args, kwargs = super().deconstruct()
+        if "unique" in kwargs:
+            del kwargs['unique']
+        return name, path, args, kwargs
+    def formfield(self, **kwargs):
+        if self.remote_field.parent_link:
+            return None
+        return super().formfield(**kwargs)
+    def save_form_data(self, instance, data):
+        if isinstance(data, self.remote_field.model):
+            setattr(instance, self.name, data)
+        else:
+            setattr(instance, self.attname, data)
+            # Remote field object must be cleared otherwise Model.save()
+            # will reassign attname using the related object pk.
+            if data is None:
+                setattr(instance, self.name, data)
+--
+        return [] if obj.pk is None else list(getattr(obj, self.attname).all())
+    def save_form_data(self, instance, data):
+        getattr(instance, self.attname).set(data)
+    def formfield(self, *, using=None, **kwargs):
+        defaults = {
+            'form_class': forms.ModelMultipleChoiceField,
+            'queryset': self.remote_field.model._default_manager.using(using),
+            **kwargs,
+        }
+        # If initial is passed in, it's a list of related objects, but the
+        # MultipleChoiceField takes a list of IDs.
+        if defaults.get('initial') is not None:
+            initial = defaults['initial']
+            if callable(initial):
+                initial = initial()
+            defaults['initial'] = [i.pk for i in initial]
+        return super().formfield(**defaults)
+    def db_check(self, connection):
+        return None
+    def db_type(self, connection):
+        # A ManyToManyField is not represented by a single column,
+        # so return None.
+        return None
+    def db_parameters(self, connection):
+3. success to run `bash(head -50 django/db/models/fields/related.py)`
+import functools
+import inspect
+from functools import partial
+from django import forms
+from django.apps import apps
+from django.conf import SettingsReference, settings
+from django.core import checks, exceptions
+from django.db import connection, router
+from django.db.backends import utils
+from django.db.models import Q
+from django.db.models.constants import LOOKUP_SEP
+from django.db.models.deletion import CASCADE, SET_DEFAULT, SET_NULL
+from django.db.models.query_utils import PathInfo
+from django.db.models.utils import make_model_tuple
+from django.utils.functional import cached_property
+from django.utils.translation import gettext_lazy as _
+from . import Field
+from .mixins import FieldCacheMixin
+from .related_descriptors import (
+    ForeignKeyDeferredAttribute, ForwardManyToOneDescriptor,
+    ForwardOneToOneDescriptor, ManyToManyDescriptor,
+    ReverseManyToOneDescriptor, ReverseOneToOneDescriptor,
+)
+from .related_lookups import (
+    RelatedExact, RelatedGreaterThan, RelatedGreaterThanOrEqual, RelatedIn,
+    RelatedIsNull, RelatedLessThan, RelatedLessThanOrEqual,
+)
+from .reverse_related import (
+    ForeignObjectRel, ManyToManyRel, ManyToOneRel, OneToOneRel,
+)
+RECURSIVE_RELATIONSHIP_CONSTANT = 'self'
+def resolve_relation(scope_model, relation):
+    """
+    Transform relation into a model or fully-qualified model string of the form
+    "app_label.ModelName", relative to scope_model.
+    The relation argument can be:
+      * RECURSIVE_RELATIONSHIP_CONSTANT, i.e. the string "self", in which case
+        the model argument will be returned.
+      * A bare model name without an app_label, in which case scope_model's
+        app_label will be prepended.
+      * An "app_label.ModelName" string.
+      * A model class, which will be returned unchanged.
+    """
+    # Check for recursive relations
+4. success to run `bash(grep -A 20 -B 5 'formfield.*_default_manager' django/db/models/fields/related.py)`
+No output
+[FIX_TASK] 19/250 | 580.4s/1300.0s | $0.7039/$2.5000
+   ├── 🛅 Input token size: 60022 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=38)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ❌ Request timeout after 50s for model Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Attempt: 1/5 | Timeout: 50s/50s | Total: 50s
+   ├── 💤 Sleeping 1s before retrying with same model...
+   ├── 🔂 Starting Request | Attempt: 2/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 2/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 26s/50s | Total: 77s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 4 function tools
+1. success to run `create_file(final_test.py, import os
+import sys
+import django
+from django.conf import settings
+from django.db import models
+from django.test import TestCase
+from django.core.exceptions import ValidationError
+# Add the project root to the path
+sys.path.insert(0, '/sandbox/repo')
+# Configure Django settings
+import django
+from django.conf import settings
+django.conf.settings.configure(
+    DEBUG=True,
+    SECRET_KEY='fake-key-for-testing',
+    USE_TZ=True,
+    INSTALLED_APPS=[
+        'django.contrib.contenttypes',
+        'django.contrib.auth',
+    ],
+    DATABASES={
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': ':memory:',
+        }
+    }
+)
+django.setup()
+# Define models as described in the issue
+class ArticleManager(models.Manager):
+    def get_queryset(self):
+        qs = super().get_queryset()
+        return qs.filter(archived=False)
+class Article(models.Model):
+    title = models.CharField(max_length=100)
+    archived = models.BooleanField(default=False)
+    # Don't include archived articles by default.
+    objects = ArticleManager()
+    
+    class Meta:
+        app_label = 'test'
+class FavoriteArticle(models.Model):
+    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    
+    class Meta:
+        app_label = 'test'
+# Create tables for our test models
+from django.db import connection
+def create_test_tables():
+    with connection.schema_editor() as schema_editor:
+        schema_editor.create_model(Article)
+        schema_editor.create_model(FavoriteArticle)
+create_test_tables()
+# Test the exact scenario from the issue description
+def test_issue_scenario():
+    print('=== Testing the exact issue scenario ===')
+    
+    # Create an archived article (this exists in DB but is filtered by default manager)
+    archived_article = Article(title='Archived Article', archived=True)
+    archived_article.save()
+    
+    print(f'Created archived article with ID: {archived_article.id}')
+    
+    # Simulate the form scenario from the issue
+    # The form is designed to use base manager to allow archived articles
+    # This is the key test - validation should now work!
+    favorite = FavoriteArticle(article=archived_article)
+    
+    try:
+        # This should now pass with our fix
+        favorite.full_clean()
+        favorite.save()
+        print('✓ SUCCESS: Validation passed for archived article')
+        print('  This means ForeignKey validation now uses _base_manager')
+        return True
+    except ValidationError as e:
+        print(f'✗ FAILED: Validation failed: {e}')
+        print('  This would be the bug - ForeignKey still using _default_manager')
+        return False
+# Test that normal cases still work
+def test_normal_cases():
+    print('
+=== Testing normal cases still work ===')
+    
+    # Non-archived article should still work
+    active_article = Article(title='Active Article', archived=False)
+    active_article.save()
+    
+    favorite = FavoriteArticle(article=active_article)
+    
+    try:
+        favorite.full_clean()
+        favorite.save()
+        print('✓ Non-archived article validation works')
+        test1 = True
+    except ValidationError as e:
+        print(f'✗ Non-archived article validation failed: {e}')
+        test1 = False
+    
+    # Non-existent article should still fail
+    favorite2 = FavoriteArticle(article_id=99999)
+    
+    try:
+        favorite2.full_clean()
+        favorite2.save()
+        print('✗ Non-existent article validation incorrectly passed')
+        test2 = False
+    except ValidationError as e:
+        print('✓ Non-existent article correctly fails validation')
+        test2 = True
+    
+    return test1 and test2
+if __name__ == '__main__':
+    print('Testing the ForeignKey validation fix...')
+    print('Issue: ForeignKey.validate() should validate using _base_manager instead of _default_manager')
+    
+    issue_test = test_issue_scenario()
+    normal_tests = test_normal_cases()
+    
+    overall_success = issue_test and normal_tests
+    
+    print(f'
+=== FINAL RESULT ===')
+    if overall_success:
+    print('🎉 ALL TESTS PASSED - The fix is working correctly!')
+    print('   - Archived articles can now be validated in forms')
+    print('   - Normal functionality is preserved')
+    print('   - Non-existent records still correctly fail validation')
+    else:
+    print('❌ SOME TESTS FAILED - There may be issues with the fix')
+    
+    print(f'
+Fix verification: {overall_success}'))`
+File created successfully at: final_test.py
+2. success to run `bash(python final_test.py)`
+File "/sandbox/repo/final_test.py", line 135
+    print('🎉 ALL TESTS PASSED - The fix is working correctly!')
+    ^^^^^
+IndentationError: expected an indented block after 'if' statement on line 134
+3. success to run `str_replace_in_file(final_test.py,     print(f'
+Fix verification: {overall_success}'),     print(f'
+Fix verification: {overall_success}'))`
+Error: old_str not found in final_test.py
+File content (first 50 lines of 142 total, with line numbers):
+     1	import os
+     2	import sys
+     3	import django
+     4	from django.conf import settings
+     5	from django.db import models
+     6	from django.test import TestCase
+     7	from django.core.exceptions import ValidationError
+     8	
+     9	# Add the project root to the path
+    10	sys.path.insert(0, '/sandbox/repo')
+    11	
+    12	# Configure Django settings
+    13	import django
+    14	from django.conf import settings
+    15	
+    16	django.conf.settings.configure(
+    17	    DEBUG=True,
+    18	    SECRET_KEY='fake-key-for-testing',
+    19	    USE_TZ=True,
+    20	    INSTALLED_APPS=[
+    21	        'django.contrib.contenttypes',
+    22	        'django.contrib.auth',
+    23	    ],
+    24	    DATABASES={
+    25	        'default': {
+    26	            'ENGINE': 'django.db.backends.sqlite3',
+    27	            'NAME': ':memory:',
+    28	        }
+    29	    }
+    30	)
+    31	django.setup()
+    32	
+    33	# Define models as described in the issue
+    34	class ArticleManager(models.Manager):
+    35	    def get_queryset(self):
+    36	        qs = super().get_queryset()
+    37	        return qs.filter(archived=False)
+    38	
+    39	class Article(models.Model):
+    40	    title = models.CharField(max_length=100)
+    41	    archived = models.BooleanField(default=False)
+    42	    # Don't include archived articles by default.
+    43	    objects = ArticleManager()
+    44	    
+    45	    class Meta:
+    46	        app_label = 'test'
+    47	
+    48	class FavoriteArticle(models.Model):
+    49	    article = models.ForeignKey(Article, on_delete=models.CASCADE)
+    50	    
+... (file has 142 total lines)
+Please check the file content above and provide the exact string to replace.
+To read more lines, use: bash sed -n '51,100p' final_test.py (for lines 51-100), or bash sed -n '101,150p' final_test.py (for lines 101-150), etc.
+4. success to run `bash(python reproduce_issue.py)`
+Testing ForeignKey validation with custom manager...
+Created archived article with ID: 1
+Validation passed - this is unexpected with the bug present
+Test result (True means bug reproduced): False
+[FIX_TASK] 20/250 | 658.3s/1300.0s | $0.8047/$2.5000
+   ├── 🛅 Input token size: 62646 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=40)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 10s/50s | Total: 10s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 4 function tools
+1. success to run `bash(sed -n '130,142p' final_test.py)`
+overall_success = issue_test and normal_tests
+    
+    print(f'
+=== FINAL RESULT ===')
+    if overall_success:
+    print('🎉 ALL TESTS PASSED - The fix is working correctly!')
+    print('   - Archived articles can now be validated in forms')
+    print('   - Normal functionality is preserved')
+    print('   - Non-existent records still correctly fail validation')
+    else:
+    print('❌ SOME TESTS FAILED - There may be issues with the fix')
+    
+    print(f'
+Fix verification: {overall_success}')
+2. success to run `str_replace_in_file(final_test.py,     print(f'
+=== FINAL RESULT ===')
+    if overall_success:
+    print('🎉 ALL TESTS PASSED - The fix is working correctly!')
+    print('   - Archived articles can now be validated in forms')
+    print('   - Normal functionality is preserved')
+    print('   - Non-existent records still correctly fail validation')
+    else:
+    print('❌ SOME TESTS FAILED - There may be issues with the fix')
+    
+    print(f'
+Fix verification: {overall_success}'),     print(f'
+=== FINAL RESULT ===')
+    if overall_success:
+        print('🎉 ALL TESTS PASSED - The fix is working correctly!')
+        print('   - Archived articles can now be validated in forms')
+        print('   - Normal functionality is preserved')
+        print('   - Non-existent records still correctly fail validation')
+    else:
+        print('❌ SOME TESTS FAILED - There may be issues with the fix')
+    
+    print(f'
+Fix verification: {overall_success}'))`
+File final_test.py edited successfully.
+Changes (showing 5 lines before and after):
+ 128|       issue_test = test_issue_scenario()
+ 129|       normal_tests = test_normal_cases()
+ 130|       
+ 131|       overall_success = issue_test and normal_tests
+ 132|       
+ 133| -     print(f'
+=== FINAL RESULT ===')
+ 134| -     if overall_success:
+ 135| -     print('🎉 ALL TESTS PASSED - The fix is working correctly!')
+ 136| -     print('   - Archived articles can now be validated in forms')
+ 137| -     print('   - Normal functionality is preserved')
+ 138| -     print('   - Non-existent records still correctly fail validation')
+ 139| -     else:
+ 140| -     print('❌ SOME TESTS FAILED - There may be issues with the fix')
+ 141| -     
+ 142| -     print(f'
+Fix verification: {overall_success}')
+ 133| +     print(f'
+=== FINAL RESULT ===')
+ 134| +     if overall_success:
+ 135| +         print('🎉 ALL TESTS PASSED - The fix is working correctly!')
+ 136| +         print('   - Archived articles can now be validated in forms')
+ 137| +         print('   - Normal functionality is preserved')
+ 138| +         print('   - Non-existent records still correctly fail validation')
+ 139| +     else:
+ 140| +         print('❌ SOME TESTS FAILED - There may be issues with the fix')
+ 141| +     
+ 142| +     print(f'
+Fix verification: {overall_success}')
+Review and edit again if needed.
+3. success to run `bash(python final_test.py)`
+Testing the ForeignKey validation fix...
+Issue: ForeignKey.validate() should validate using _base_manager instead of _default_manager
+=== Testing the exact issue scenario ===
+Created archived article with ID: 1
+✓ SUCCESS: Validation passed for archived article
+  This means ForeignKey validation now uses _base_manager
+=== Testing normal cases still work ===
+✓ Non-archived article validation works
+✓ Non-existent article correctly fails validation
+=== FINAL RESULT ===
+🎉 ALL TESTS PASSED - The fix is working correctly!
+   - Archived articles can now be validated in forms
+   - Normal functionality is preserved
+   - Non-existent records still correctly fail validation
+Fix verification: True
+4. success to run `bash(python comprehensive_test.py)`
+=== Comprehensive ForeignKey validation test ===
+Test 1: Validating archived article (should pass with fix)
+✓ Validation passed for archived article - fix is working!
+Test 2: Validating non-archived article (should always pass)
+✓ Validation passed for non-archived article
+Test 3: Validating non-existent article (should always fail)
+✓ Validation correctly failed for non-existent article: {'article': ['article instance with id 99999 does not exist.']}
+Test 4: Validating simple models without custom managers
+✓ Validation passed for simple models
+=== Overall result: ALL TESTS PASSED ===
+Final result: True
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 2 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/2 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/2 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 6s/50s | Total: 6s
+[FIX_TASK] 21/250 | 675.9s/1300.0s | $0.8617/$2.5000
+   ├── 🛅 Input token size: 60289 tokens (model=Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8, messages=33)
+📡 [RUN_ID]: 74a322e8-98fa-47c1-972f-1a9051af7189 | Attempts: 5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Temperature: 0.0
+   ├── 🔂 Starting Request | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 50s
+   ├── ✅ Request  Success | Attempt: 1/5 | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8 | Timeout: 16s/50s | Total: 16s
+   └── ✅ Parsing  Success | Elapsed: 0.00s | Model: Qwen/Qwen3-Coder-480B-A35B-Instruct-FP8
+[FIX_TASK] [CRITICAL] Executed 3 function tools
+1. success to run `bash(python reproduce_issue.py)`
+Testing ForeignKey validation with custom manager...
+Created archived article with ID: 1
+Validation passed - this is unexpected with the bug present
+Test result (True means bug reproduced): False
+2. success to run `bash(grep -A 5 -B 5 '_base_manager' django/db/models/fields/related.py)`
+super().validate(value, model_instance)
+        if value is None:
+            return
+        using = router.db_for_read(self.remote_field.model, instance=model_instance)
+        qs = self.remote_field.model._base_manager.using(using).filter(
+            **{self.remote_field.field_name: value}
+        )
+        qs = qs.complex_filter(self.get_limit_choices_to())
+        if not qs.exists():
+            raise exceptions.ValidationError(
+3. success to run `finish(## Summary
+I have successfully fixed the bug in Django's ForeignKey validation. The issue was that `ForeignKey.validate()` was using `_default_manager` instead of `_base_manager`, which caused validation to fail for records that existed in the database but were filtered out by custom default managers.
+## Changes Made
+**File Modified**: `django/db/models/fields/related.py`
+**Line**: 917
+**Change**: Changed `self.remote_field.model._default_manager` to `self.remote_field.model._base_manager`
+This single-line change ensures that ForeignKey validation can find records that exist in the database regardless of custom filtering applied by default managers.
+## Problem Analysis
+The issue occurred in this scenario:
+1. A model has a custom default manager that filters out certain records (e.g., archived=False)
+2. A form is designed to work with all records, including filtered ones, by using `_base_manager`
+3. When validating the form, ForeignKey validation failed because it was using `_default_manager` which couldn't find the filtered records
+## Solution Verification
+I created comprehensive tests that verify:
+1. ✅ Archived articles (filtered by custom manager) now pass validation
+2. ✅ Non-archived articles continue to work as before
+3. ✅ Non-existent records still correctly fail validation
+4. ✅ Models without custom managers continue to work normally
+## Design Considerations
+The fix is minimal and targeted:
+- Only changes the validation behavior, not form field behavior
+- Form fields still use `_default_manager` appropriately to respect custom filtering in UI
+- Backend validation now uses `_base_manager` to allow valid references to all existent records
+- Maintains backward compatibility for all existing functionality
+This fix resolves the exact issue described in the problem statement where forms designed to work with archived articles were failing validation.)`
+finish
+[FIX_TASK] Workflow called finish operation
+Generating git patch...
+git patch stdout:
+diff --git a/django/db/models/fields/related.py b/django/db/models/fields/related.py
+index d517d7269b..c2aea9c730 100644
+--- a/django/db/models/fields/related.py
++++ b/django/db/models/fields/related.py
+@@ -914,7 +914,7 @@ class ForeignKey(ForeignObject):
+             return
+ 
+         using = router.db_for_read(self.remote_field.model, instance=model_instance)
+-        qs = self.remote_field.model._default_manager.using(using).filter(
++        qs = self.remote_field.model._base_manager.using(using).filter(
+             **{self.remote_field.field_name: value}
+         )
+         qs = qs.complex_filter(self.get_limit_choices_to())
+git patch stderr:
+workflow execution completed, patch length: 638
+[CRITICAL] patch: diff --git a/django/db/models/fields/related.py b/django/db/models/fields/related.py
+index d517d7269b..c2aea9c730 100644
+--- a/django/db/models/fields/related.py
++++ b/django/db/models/fields/related.py
+@@ -914,7 +914,7 @@ class ForeignKey(ForeignObject):
+             return
+ 
+         using = router.db_for_read(self.remote_field.model, instance=model_instance)
+-        qs = self.remote_field.model._default_manager.using(using).filter(
++        qs = self.remote_field.model._base_manager.using(using).filter(
+             **{self.remote_field.field_name: value}
+         )
+         qs = qs.complex_filter(self.get_limit_choices_to())
+HEAD is now at fbe82f8255 Refs #26761 -- Removed extra space in admin change list result header.
+diff --git a/django/db/models/fields/related.py b/django/db/models/fields/related.py
+index d517d7269b..c2aea9c730 100644
+--- a/django/db/models/fields/related.py
++++ b/django/db/models/fields/related.py
+@@ -914,7 +914,7 @@ class ForeignKey(ForeignObject):
+             return
+ 
+         using = router.db_for_read(self.remote_field.model, instance=model_instance)
+-        qs = self.remote_field.model._default_manager.using(using).filter(
++        qs = self.remote_field.model._base_manager.using(using).filter(
+             **{self.remote_field.field_name: value}
+         )
+         qs = qs.complex_filter(self.get_limit_choices_to())
+[AGENT_RUNNER] Exited agent's agent_main()
+[AGENT_RUNNER] Writing output.json
+[AGENT_RUNNER] Wrote output.json
+[AGENT_RUNNER] Exiting main()
